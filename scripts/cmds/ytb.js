@@ -1,202 +1,261 @@
-const yts = require("yt-search");
 const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
+const { createCanvas, loadImage } = require("canvas");
+const { box, bold } = require("../../func/style.js");
 
-const CACHE = path.join(__dirname, "cache");
-if (!fs.existsSync(CACHE)) fs.mkdirSync(CACHE, { recursive: true });
+const API_BASE = "https://azadx69x.is-a.dev";
+
+const W = 640;
+const HEADER_H = 80;
+const ROW_H = 90;
+const PADDING = 20;
+const THUMB_W = 118;
+const THUMB_H = 66;
+const FOOT_H = 20;
+
+function formatViews(n) {
+  if (!n || n === 0) return "N/A vues";
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B vues";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M vues";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K vues";
+  return n + " vues";
+}
+
+function truncate(text, maxLen) {
+  return text.length > maxLen ? text.slice(0, maxLen - 1) + "…" : text;
+}
+
+function drawYTLogo(ctx, x, y) {
+  const rw = 36, rh = 26, r = 6;
+  ctx.fillStyle = "#FF0000";
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + rw - r, y);
+  ctx.quadraticCurveTo(x + rw, y, x + rw, y + r);
+  ctx.lineTo(x + rw, y + rh - r);
+  ctx.quadraticCurveTo(x + rw, y + rh, x + rw - r, y + rh);
+  ctx.lineTo(x + r, y + rh);
+  ctx.quadraticCurveTo(x, y + rh, x, y + rh - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  const cx = x + rw / 2 + 2, cy = y + rh / 2;
+  ctx.moveTo(cx - 7, cy - 7);
+  ctx.lineTo(cx + 9, cy);
+  ctx.lineTo(cx - 7, cy + 7);
+  ctx.closePath();
+  ctx.fill();
+}
+
+async function generateSearchImage(results, query, type) {
+  const totalH = HEADER_H + results.length * ROW_H + FOOT_H;
+  const canvas = createCanvas(W, totalH);
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#181818";
+  ctx.fillRect(0, 0, W, totalH);
+
+  drawYTLogo(ctx, PADDING, 22);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 22px sans-serif";
+  ctx.fillText("Résultats de recherche", PADDING + 44, 43);
+
+  const typeLabel = type === "audio" ? "Audio" : "Vidéo";
+  ctx.fillStyle = "#aaaaaa";
+  ctx.font = "13px sans-serif";
+  ctx.fillText(`"${truncate(query, 40)}" — ${typeLabel}`, PADDING + 44, 62);
+
+  ctx.strokeStyle = "#333333";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PADDING, HEADER_H - 1);
+  ctx.lineTo(W - PADDING, HEADER_H - 1);
+  ctx.stroke();
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const y = HEADER_H + i * ROW_H;
+    const mid = y + ROW_H / 2;
+
+    if (i % 2 === 0) {
+      ctx.fillStyle = "#1f1f1f";
+      ctx.fillRect(0, y, W, ROW_H);
+    }
+
+    ctx.fillStyle = "#666666";
+    ctx.font = "bold 18px sans-serif";
+    ctx.fillText(String(r.index), PADDING, mid + 7);
+
+    const thumbX = PADDING + 30;
+    const thumbY = y + (ROW_H - THUMB_H) / 2;
+
+    ctx.fillStyle = "#333333";
+    ctx.fillRect(thumbX, thumbY, THUMB_W, THUMB_H);
+
+    try {
+      const imgBuf = await axios.get(r.thumbnail, { responseType: "arraybuffer", timeout: 6000 });
+      const img = await loadImage(Buffer.from(imgBuf.data));
+      ctx.drawImage(img, thumbX, thumbY, THUMB_W, THUMB_H);
+    } catch {
+      ctx.fillStyle = "#444444";
+      ctx.fillRect(thumbX, thumbY, THUMB_W, THUMB_H);
+      ctx.fillStyle = "#888888";
+      ctx.font = "11px sans-serif";
+      ctx.fillText("Pas d'image", thumbX + 18, thumbY + 36);
+    }
+
+    ctx.strokeStyle = "#444444";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(thumbX, thumbY, THUMB_W, THUMB_H);
+
+    const textX = thumbX + THUMB_W + 14;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.fillText(truncate(r.title, 52), textX, mid - 14);
+
+    ctx.fillStyle = "#aaaaaa";
+    ctx.font = "12px sans-serif";
+    ctx.fillText(`${truncate(r.channel, 30)} • ${r.duration}`, textX, mid + 4);
+
+    ctx.fillStyle = "#777777";
+    ctx.font = "12px sans-serif";
+    ctx.fillText(formatViews(r.views), textX, mid + 20);
+
+    if (i < results.length - 1) {
+      ctx.strokeStyle = "#2a2a2a";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PADDING + 30, y + ROW_H);
+      ctx.lineTo(W - PADDING, y + ROW_H);
+      ctx.stroke();
+    }
+  }
+
+  return canvas.toBuffer("image/jpeg", { quality: 0.92 });
+}
 
 module.exports = {
   config: {
     name: "ytb",
-    aliases: ["youtube"],
-    version: "1.1.1",
-    author: "Christus",
+    aliases: [],
+    version: "0.0.7",
+    author: "Azadx69x",
     countDown: 5,
     role: 0,
     category: "media",
-    description: {
-      en: "Search and download YouTube videos/audios"
-    },
-    nixPrefix: true,
-    guide: {
-      en: "   {pn} -v <query> - Download video\n"
-        + "   {pn} -a <query> - Download audio\n"
-        + "   {pn} -u <url> -v|-a - Download from URL directly"
-    }
+    description: { en: "Search YouTube and download audio or video" },
+    guide: { en: "{pn} -a <song name>\n{pn} -v <video title>" }
   },
 
-  onStart: async function ({ sock, chatId, args, event, senderId, reply, prefix, commandName }) {
-    const type = args[0]?.toLowerCase();
-    if (!type) return reply(`❌ Usage: ${prefix}${commandName} [-v|-a|-u] ...`);
+  onStart: async function ({ args, chatId, event, reply, sock, senderId, commandName }) {
+    const flag = (args[0] || "").toLowerCase();
+    if (!flag || !args[1]) {
+      return reply(box({ title: "Ytb", emoji: "❌", body: "Utilisation :\n-a <nom de chanson> → Audio\n-v <titre> → Vidéo" }));
+    }
 
-    // --- Téléchargement direct depuis une URL ---
-    if (type === "-u") {
-      const url = args[1];
-      const mode = args[2] || "-v";
-      if (!url || !url.startsWith("http")) return reply("❌ Veuillez fournir une URL YouTube valide.");
-      if (!["-v", "-a"].includes(mode)) return reply("❌ Précisez -v (vidéo) ou -a (audio) après l'URL.");
+    const type = flag === "-a" ? "audio" : flag === "-v" ? "video" : null;
+    if (!type) {
+      return reply(box({ title: "Ytb", emoji: "❌", body: "Utilisez -a pour l'audio ou -v pour la vidéo." }));
+    }
 
-      const waitMsg = await sock.sendMessage(chatId, {
-        text: `⏳ Téléchargement ${mode === "-v" ? "vidéo" : "audio"} en cours...`
-      }, { quoted: event });
+    const query = args.slice(1).join(" ").trim();
+    if (!query) {
+      return reply(box({ title: "Ytb", emoji: "❌", body: "Veuillez fournir un terme de recherche." }));
+    }
 
-      try {
-        if (mode === "-a") {
-          await downloadAudio(url, sock, chatId, event);
-        } else {
-          await downloadVideo(url, sock, chatId, event);
-        }
-        await sock.sendMessage(chatId, { delete: waitMsg.key });
-      } catch (e) {
-        console.error("[YTB] Download error:", e);
-        await sock.sendMessage(chatId, {
-          text: "❌ Échec du téléchargement.",
-          edit: waitMsg.key
-        });
+    try {
+      const { data } = await axios.get(
+        `${API_BASE}/api/youtube-search?query=${encodeURIComponent(query)}&type=${type}`,
+        { timeout: 15000 }
+      );
+
+      if (!data.status || !data.results || data.results.length === 0) {
+        return reply(box({ title: "Ytb", emoji: "⭕", body: `Aucun résultat trouvé pour : ${query}` }));
       }
-      return;
-    }
 
-    // --- Recherche et sélection ---
-    if (!["-v", "-a"].includes(type))
-      return reply(`❌ Utilisez -v (vidéo) ou -a (audio).\nExemple: ${prefix}${commandName} -v never gonna give you up`);
+      const results = data.results;
+      const total = results.length;
 
-    const query = args.slice(1).join(" ");
-    if (!query) return reply(`❌ Veuillez fournir un terme de recherche.`);
+      const imgBuf = await generateSearchImage(results, query, type);
 
-    try {
-      const search = await yts(query);
-      const results = search.videos.slice(0, 5);
-      if (results.length === 0) return reply("❌ Aucun résultat trouvé.");
-
-      // Préparation du message de sélection
-      let msg = "🎬 *Résultats de recherche YouTube*\n\n";
-      results.forEach((v, i) => {
-        msg += `${i + 1}. ${v.title}\n   ⏱ ${v.timestamp}\n\n`;
-      });
-      msg += "📩 *Répondez avec le numéro (1-5) pour télécharger.*";
-
-      // Envoi du premier thumbnail avec la légende
-      const sent = await sock.sendMessage(chatId, {
-        image: { url: results[0].thumbnail },
-        caption: msg
+      const sentMsg = await sock.sendMessage(chatId, {
+        image: imgBuf,
+        caption: box({ title: "Ytb", emoji: "🔎", body: `Répondez avec 1–${total} pour télécharger ${type === "audio" ? "l'audio 🎵" : "la vidéo 🎬"}` })
       }, { quoted: event });
 
-      // Stockage des données pour onReply
       global.NixBot.onReply.push({
-        commandName: "ytb",
-        messageID: sent.key.id,
+        commandName,
+        messageID: sentMsg.key.id,
         author: senderId,
-        results: results,
-        downloadType: type  // "-v" ou "-a"
+        type,
+        results,
+        total
       });
 
-    } catch (err) {
-      console.error("[YTB] Search error:", err);
-      return reply("❌ Erreur lors de la recherche : " + err.message);
+    } catch (error) {
+      console.error("[YTB]", error.message);
+      return reply(box({ title: "Ytb", emoji: "❌", body: "Échec de la recherche YouTube." }));
     }
   },
 
-  onReply: async function ({ sock, chatId, message, senderId, event }) {
-    const repliedMsgId = event.message?.extendedTextMessage?.contextInfo?.stanzaId;
-    if (!repliedMsgId) return;
+  onReply: async function ({ event, chatId, reply, sock, senderId, commandName }) {
+    const repliedId = event.message?.extendedTextMessage?.contextInfo?.stanzaId;
+    if (!repliedId) return;
 
-    const data = global.NixBot.onReply.find(
-      r => r.commandName === "ytb" && r.author === senderId && r.messageID === repliedMsgId
-    );
+    const data = global.NixBot.onReply.find(r => r.commandName === commandName && r.messageID === repliedId);
     if (!data) return;
+    if (data.author !== senderId) return;
 
-    const text = message.message?.conversation || message.message?.extendedTextMessage?.text || "";
-    const index = parseInt(text) - 1;
-    if (isNaN(index) || index < 0 || index >= data.results.length) {
-      return sock.sendMessage(chatId, { text: "❌ Choix invalide." }, { quoted: event });
+    const body = event.message?.conversation || event.message?.extendedTextMessage?.text || "";
+    const choice = parseInt(body.trim(), 10);
+
+    if (isNaN(choice) || choice <= 0 || choice > data.total) {
+      return reply(box({ title: "Ytb", emoji: "❌", body: "Veuillez entrer un numéro valide." }));
     }
 
-    const selected = data.results[index];
-
-    // Supprimer les données pour éviter une seconde utilisation
-    const idx = global.NixBot.onReply.findIndex(r => r.messageID === data.messageID);
-    if (idx !== -1) global.NixBot.onReply.splice(idx, 1);
-
-    // Supprimer le message de sélection
-    try {
-      await sock.sendMessage(chatId, {
-        delete: {
-          remoteJid: chatId,
-          fromMe: true,
-          id: data.messageID
-        }
-      });
-    } catch (e) {}
+    const selected = data.results[choice - 1];
 
     const waitMsg = await sock.sendMessage(chatId, {
-      text: `⏳ Téléchargement de "${selected.title}"...`
+      text: box({ title: "Ytb", emoji: "⏳", body: "Téléchargement en cours..." })
     }, { quoted: event });
 
     try {
-      if (data.downloadType === "-a") {
-        await downloadAudio(selected.url, sock, chatId, event);
-      } else {
-        await downloadVideo(selected.url, sock, chatId, event);
+      const { data: dlData } = await axios.get(
+        `${API_BASE}/api/youtube-download?url=${encodeURIComponent(selected.url)}&type=${data.type}`,
+        { timeout: 60000 }
+      );
+
+      if (!dlData.status || !dlData.downloadUrl) {
+        await sock.sendMessage(chatId, { delete: waitMsg.key });
+        return reply(box({ title: "Ytb", emoji: "❌", body: "Impossible de récupérer le fichier." }));
       }
+
+      const fileResp = await axios.get(dlData.downloadUrl, { responseType: "arraybuffer", timeout: 120000 });
+      const buffer = Buffer.from(fileResp.data);
+
       await sock.sendMessage(chatId, { delete: waitMsg.key });
+
+      if (data.type === "audio") {
+        await sock.sendMessage(chatId, {
+          audio: buffer,
+          mimetype: "audio/mpeg",
+          caption: box({ title: "Ytb", emoji: "🎵", body: `${bold("Titre")} : ${selected.title}` })
+        }, { quoted: event });
+      } else {
+        await sock.sendMessage(chatId, {
+          video: buffer,
+          caption: box({ title: "Ytb", emoji: "🎬", body: `${bold("Titre")} : ${selected.title}` })
+        }, { quoted: event });
+      }
+
     } catch (e) {
-      console.error("[YTB] Download error:", e);
-      await sock.sendMessage(chatId, {
-        text: "❌ Échec du téléchargement.",
-        edit: waitMsg.key
-      });
+      console.error("[YTB] download error:", e.message);
+      await sock.sendMessage(chatId, { delete: waitMsg.key });
+      return reply(box({ title: "Ytb", emoji: "❌", body: "Échec du téléchargement." }));
     }
   }
 };
-
-// ---------- Fonctions de téléchargement ----------
-async function downloadVideo(url, sock, chatId, event) {
-  // Nouvel endpoint : /api/fahh?url=...&format=mp4
-  const apiUrl = `https://downvid.onrender.com/api/fahh?url=${encodeURIComponent(url)}&format=mp4`;
-  const { data } = await axios.get(apiUrl);
-  if (data.status !== "success" || !data.downloadUrl)
-    throw new Error("L'API n'a pas retourné d'URL de téléchargement.");
-
-  const filePath = path.join(CACHE, `vid_${Date.now()}.mp4`);
-  await downloadFile(data.downloadUrl, filePath);
-
-  await sock.sendMessage(chatId, {
-    video: fs.readFileSync(filePath),
-    caption: "🎥 Vidéo téléchargée",
-    mimetype: "video/mp4"
-  }, { quoted: event });
-
-  fs.unlinkSync(filePath);
-}
-
-async function downloadAudio(url, sock, chatId, event) {
-  // Nouvel endpoint : /api/fahh?url=...&format=mp3
-  const apiUrl = `https://downvid.onrender.com/api/fahh?url=${encodeURIComponent(url)}&format=mp3`;
-  const { data } = await axios.get(apiUrl);
-  if (data.status !== "success" || !data.downloadUrl)
-    throw new Error("L'API n'a pas retourné d'URL de téléchargement.");
-
-  const filePath = path.join(CACHE, `aud_${Date.now()}.mp3`);
-  await downloadFile(data.downloadUrl, filePath);
-
-  await sock.sendMessage(chatId, {
-    audio: fs.readFileSync(filePath),
-    mimetype: "audio/mpeg",
-    fileName: "audio.mp3",
-    ptt: false
-  }, { quoted: event });
-
-  fs.unlinkSync(filePath);
-}
-
-async function downloadFile(url, outputPath) {
-  const writer = fs.createWriteStream(outputPath);
-  const response = await axios.get(url, { responseType: "stream" });
-  response.data.pipe(writer);
-  return new Promise((resolve, reject) => {
-    writer.on("finish", resolve);
-    writer.on("error", reject);
-  });
-  }

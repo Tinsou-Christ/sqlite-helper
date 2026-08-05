@@ -1,4 +1,5 @@
 const { threadsData } = global.utils;
+const { box, bold, line } = require("../../func/style.js");
 
 function cleanId(id) {
   return (id || "").split("@")[0].split(":")[0].replace(/[^0-9]/g, "");
@@ -22,13 +23,13 @@ module.exports = {
   },
 
   onStart: async function ({ sock, chatId, event, args, reply, isGroup, senderId, commandName }) {
-    if (!isGroup) return reply("This command can only be used in groups.");
+    if (!isGroup) return reply(box({ title: "Ban", emoji: "❌", body: "Cette commande ne peut être utilisée que dans un groupe." }));
 
     let groupMeta;
     try {
       groupMeta = await sock.groupMetadata(chatId);
     } catch (e) {
-      return reply("Failed to get group info.");
+      return reply(box({ title: "Ban", emoji: "❌", body: "Impossible de récupérer les infos du groupe." }));
     }
 
     const botNumber = (sock.user?.id?.split(":")[0] || "").replace(/\D/g, "");
@@ -42,7 +43,7 @@ module.exports = {
       }
     }
 
-    if (!botIsAdmin) return reply("Bot needs to be admin to use this command.");
+    if (!botIsAdmin) return reply(box({ title: "Ban", emoji: "❌", body: "Le bot doit être admin pour utiliser cette commande." }));
 
     const senderNum = cleanId(senderId);
     const senderParticipant = groupMeta.participants.find(p => cleanId(p.id) === senderNum);
@@ -50,7 +51,7 @@ module.exports = {
     const ownerNumbers = (global.config?.adminBot || []).map(n => n.replace(/\D/g, ""));
     const senderIsOwner = ownerNumbers.includes(senderNum);
 
-    if (!senderIsAdmin && !senderIsOwner) return reply("You need to be a group admin to use this command.");
+    if (!senderIsAdmin && !senderIsOwner) return reply(box({ title: "Ban", emoji: "❌", body: "Vous devez être admin du groupe pour utiliser cette commande." }));
 
     const contextInfo = event.message?.extendedTextMessage?.contextInfo || {};
     const mentionedJids = contextInfo?.mentionedJid || [];
@@ -81,45 +82,45 @@ module.exports = {
     if (args[0] === "unban") {
       args.shift();
       const targetId = getTargetId();
-      if (!targetId) return reply("Please @tag or reply to a user to unban.");
+      if (!targetId) return reply(box({ title: "Ban", emoji: "⚠️", body: "Veuillez taguer ou répondre à l'utilisateur à débannir." }));
 
       const idx = groupBans.findIndex(b => cleanId(b.id) === targetId);
-      if (idx === -1) return reply(`User ${targetId} is not banned in this group.`);
+      if (idx === -1) return reply(box({ title: "Ban", emoji: "⚠️", body: `L'utilisateur ${targetId} n'est pas banni de ce groupe.` }));
 
       const removed = groupBans.splice(idx, 1)[0];
       await threadsData.set(chatId, { groupBans });
-      return reply(`Unbanned ${removed.name || targetId} (${targetId}).\nThey can now rejoin the group.`);
+      return reply(box({ title: "Ban", emoji: "✅", body: `Débanni ${removed.name || targetId} (${targetId}).\nIl/elle peut désormais rejoindre le groupe.` }));
     }
 
     if (args[0] === "list") {
-      if (!groupBans.length) return reply("No banned users in this group.");
+      if (!groupBans.length) return reply(box({ title: "Ban", emoji: "📋", body: "Aucun utilisateur banni dans ce groupe." }));
 
-      let msg = `📋 Banned Users (${groupBans.length}):\n`;
+      let body = `${bold("Utilisateurs bannis")} (${groupBans.length}) :\n`;
       for (const ban of groupBans) {
-        msg += `\n╭ ID: ${ban.id}`;
-        msg += `\n│ Name: ${ban.name || "Unknown"}`;
-        msg += `\n│ Reason: ${ban.reason || "No reason"}`;
-        msg += `\n╰ Date: ${ban.date || "Unknown"}\n`;
+        body += `\n╭ ID : ${ban.id}`;
+        body += `\n│ Nom : ${ban.name || "Inconnu"}`;
+        body += `\n│ Raison : ${ban.reason || "Aucune raison"}`;
+        body += `\n╰ Date : ${ban.date || "Inconnue"}\n`;
       }
-      return reply(msg);
+      return reply(box({ title: "Ban", emoji: "📋", body }));
     }
 
     const targetId = getTargetId();
     const targetJid = getTargetJid();
-    if (!targetId || !targetJid) return reply("Please @tag or reply to a user to ban.");
+    if (!targetId || !targetJid) return reply(box({ title: "Ban", emoji: "⚠️", body: "Veuillez taguer ou répondre à l'utilisateur à bannir." }));
 
-    if (targetId === botNumber) return reply("You cannot ban the bot.");
+    if (targetId === botNumber) return reply(box({ title: "Ban", emoji: "❌", body: "Vous ne pouvez pas bannir le bot." }));
 
     const targetParticipant = groupMeta.participants.find(p => cleanId(p.id) === targetId);
     if (targetParticipant && (targetParticipant.admin === "admin" || targetParticipant.admin === "superadmin")) {
-      return reply("You cannot ban a group admin.");
+      return reply(box({ title: "Ban", emoji: "❌", body: "Vous ne pouvez pas bannir un admin du groupe." }));
     }
 
-    if (ownerNumbers.includes(targetId)) return reply("You cannot ban a bot owner.");
+    if (ownerNumbers.includes(targetId)) return reply(box({ title: "Ban", emoji: "❌", body: "Vous ne pouvez pas bannir un propriétaire du bot." }));
 
     const existing = groupBans.find(b => cleanId(b.id) === targetId);
     if (existing) {
-      return reply(`User ${existing.name || targetId} is already banned.\n» Reason: ${existing.reason || "No reason"}\n» Date: ${existing.date || "Unknown"}`);
+      return reply(box({ title: "Ban", emoji: "⚠️", body: `L'utilisateur ${existing.name || targetId} est déjà banni.\n${bold("Raison")} : ${existing.reason || "Aucune raison"}\n${bold("Date")} : ${existing.date || "Inconnue"}` }));
     }
 
     let reason;
@@ -130,7 +131,7 @@ module.exports = {
     } else {
       reason = args.slice(1).join(" ").trim();
     }
-    if (!reason) reason = "No reason";
+    if (!reason) reason = "Aucune raison";
 
     let name = targetId;
     const participant = groupMeta.participants.find(p => cleanId(p.id) === targetId);
@@ -145,10 +146,10 @@ module.exports = {
       await sock.groupParticipantsUpdate(chatId, [targetJid], "remove");
     } catch (e) {
       console.error("[BAN KICK ERROR]", e.message);
-      return reply(`Banned ${name} (${targetId}) but failed to kick.\n» Reason: ${reason}\n» Date: ${now}\n\nBot may not have permission to kick this user.`);
+      return reply(box({ title: "Ban", emoji: "⚠️", body: `Banni ${name} (${targetId}) mais échec du kick.\n${bold("Raison")} : ${reason}\n${bold("Date")} : ${now}\n${line}\nLe bot n'a peut-être pas la permission de kicker cet utilisateur.` }));
     }
 
-    return reply(`Banned & kicked ${name} (${targetId}).\n» Reason: ${reason}\n» Date: ${now}\n\nThey will be auto-kicked if added back. Use !unban to allow them to rejoin.`);
+    return reply(box({ title: "Ban", emoji: "✅", body: `Banni et kické ${name} (${targetId}).\n${bold("Raison")} : ${reason}\n${bold("Date")} : ${now}\n${line}\nIl/elle sera re-kické s'il/elle est réajouté(e). Utilisez !ban unban pour autoriser son retour.` }));
   },
 
   onEvent: async function ({ sock, eventData }) {
@@ -170,7 +171,7 @@ module.exports = {
       const banned = groupBans.find(b => cleanId(b.id) === num || (phoneNum && cleanId(b.id) === phoneNum));
       if (banned) {
         try {
-          await sock.sendMessage(id, { text: `@${num} is banned from this group.\n» Reason: ${banned.reason || "No reason"}\n\nAuto-kicking...`, mentions: [jidStr] });
+          await sock.sendMessage(id, { text: box({ title: "Ban", emoji: "⚠️", body: `@${num} est banni de ce groupe.\n${bold("Raison")} : ${banned.reason || "Aucune raison"}\n${line}\nAuto-kick en cours...` }), mentions: [jidStr] });
           await sock.groupParticipantsUpdate(id, [jidStr], "remove");
         } catch (e) {}
       }
