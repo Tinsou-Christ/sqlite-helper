@@ -1,6 +1,26 @@
 const axios = require('axios');
+const fs = require('fs-extra');
+const path = require('path');
 
 const BASE_URL = 'https://quiz-api-zd8a.onrender.com/api';
+
+// Helper pour télécharger une image et retourner un buffer
+async function getBufferFromURL(url) {
+  if (!url) return null;
+  try {
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    return Buffer.from(response.data);
+  } catch (e) {
+    console.error('Erreur téléchargement image:', e.message);
+    return null;
+  }
+}
 
 async function translate(text, targetLang = 'fr') {
   if (!text || text.includes('http')) return text;
@@ -76,55 +96,32 @@ async function getAvailableCategories() {
   }
 }
 
-async function safeStream(url) {
-  if (!url || !/^https?:\/\//i.test(url)) return null;
-  try {
-    const res = await axios.get(url, {
-      responseType: "stream",
-      timeout: 20000,
-      maxRedirects: 5,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        Accept: "image/avif,image/webp,image/*,*/*;q=0.8",
-        Referer: "https://www.google.com/"
-      }
-    });
-    const ext = (url.split("?")[0].split(".").pop() || "jpg").slice(0, 4);
-    res.data.path = `quiz_${Date.now()}.${ext}`;
-    return res.data;
-  } catch (e) {
-    console.error("Échec du téléchargement de l'image:", url, e.message);
-    try { return await global.utils.getStreamFromURL(url); } catch (e2) { return null; }
-  }
-}
-
 module.exports = {
   config: {
     name: "quiz",
     aliases: ["q", "qz", "kuiz"],
-    version: "6.0.0",
+    version: "5.0.0",
     author: "Christus",
     countDown: 5,
     role: 0,
-    shortDescription: "Jeu de quiz avancé",
-    longDescription: "Jeu de quiz avancé avec 6000+ questions, images, succès et classements",
+    description: {
+      en: "Jeu de quiz avancé avec 6000+ questions, images, succès et classements"
+    },
     category: "game",
     nixPrefix: true,
     guide: {
-      en: `   {pn} <catégorie> - Commencer un quiz\n` +
-          `   {pn} rank - Voir votre profil\n` +
-          `   {pn} lb - Classement global\n` +
-          `   {pn} daily - Défi quotidien\n` +
-          `   {pn} torf - Quiz Vrai/Faux\n` +
-          `   {pn} flag - Quiz drapeaux\n` +
-          `   {pn} anime - Quiz anime\n` +
-          `   {pn} cartoon - Quiz dessins animés\n` +
-          `   {pn} animaux - Quiz animaux\n` +
-          `   {pn} monument - Quiz monuments\n` +
-          `   {pn} sport - Quiz sport\n` +
-          `   {pn} hard/medium/easy - Quiz par difficulté\n\n` +
-          `📚 Catégories disponibles :\n` +
-          `🎌 anime, 🏁 flag, 📺 cartoon, 🐾 animaux, 🏛️ monument, ⚽ sport, 🔬 science, 📖 histoire, 🎬 cinema, 🌍 geographie, ➗ maths, 🎭 culture, ⚖️ torf`
+      en: `{pn} <catégorie> - Commencer un quiz\n` +
+          `{pn} rank - Voir votre profil\n` +
+          `{pn} lb - Classement global\n` +
+          `{pn} daily - Défi quotidien\n` +
+          `{pn} torf - Quiz Vrai/Faux\n` +
+          `{pn} flag - Quiz drapeaux\n` +
+          `{pn} anime - Quiz anime\n` +
+          `{pn} cartoon - Quiz dessins animés\n` +
+          `{pn} animaux - Quiz animaux\n` +
+          `{pn} monument - Quiz monuments\n` +
+          `{pn} sport - Quiz sport\n` +
+          `{pn} hard/medium/easy - Quiz par difficulté`
     }
   },
 
@@ -140,7 +137,7 @@ module.exports = {
       }).catch(() => {});
 
       if (!args[0] || command === "help") {
-        return await handleDefaultView(chatId, sock, reply, event);
+        return await this.handleDefaultView(chatId, sock, reply, event);
       }
 
       switch (command) {
@@ -148,80 +145,80 @@ module.exports = {
         case "profile":
         case "rang":
         case "profil":
-          return await handleRank(chatId, event, sock, userId, userName, reply, usersData);
+          return await this.handleRank(chatId, event, sock, userId, userName, reply, usersData);
           
         case "leaderboard":
         case "lb":
         case "classement":
-          return await handleLeaderboard(chatId, event, sock, args.slice(1), reply);
+          return await this.handleLeaderboard(chatId, event, sock, args.slice(1), reply);
           
         case "category":
         case "categorie":
           if (args.length > 1) {
-            return await handleCategoryLeaderboard(chatId, event, sock, args.slice(1), reply);
+            return await this.handleCategoryLeaderboard(chatId, event, sock, args.slice(1), reply);
           }
-          return await handleCategories(chatId, sock, reply, event);
+          return await this.handleCategories(chatId, sock, reply, event);
           
         case "daily":
         case "quotidien":
-          return await handleDailyChallenge(chatId, event, sock, userId, userName, reply);
+          return await this.handleDailyChallenge(chatId, event, sock, userId, userName, reply);
           
         case "torf":
         case "vrai/faux":
-          return await handleTrueOrFalse(chatId, event, sock, userId, userName, reply);
+          return await this.handleTrueOrFalse(chatId, event, sock, userId, userName, reply);
           
         case "flag":
         case "drapeau":
-          return await handleFlagQuiz(chatId, event, sock, userId, userName, reply);
+          return await this.handleFlagQuiz(chatId, event, sock, userId, userName, reply);
           
         case "anime":
-          return await handleAnimeQuiz(chatId, event, sock, userId, userName, reply);
+          return await this.handleAnimeQuiz(chatId, event, sock, userId, userName, reply);
           
         case "cartoon":
         case "dessin":
         case "dessins":
         case "kids":
-          return await handleImageQuiz(chatId, event, sock, userId, userName, "cartoon", "📺 𝗤𝘂𝗶𝘇 𝗗𝗲𝘀𝘀𝗶𝗻𝘀 𝗔𝗻𝗶𝗺é𝘀", reply);
+          return await this.handleImageQuiz(chatId, event, sock, userId, userName, "cartoon", "📺 𝗤𝘂𝗶𝘇 𝗗𝗲𝘀𝘀𝗶𝗻𝘀 𝗔𝗻𝗶𝗺é𝘀", reply);
           
         case "animaux":
         case "animal":
-          return await handleImageQuiz(chatId, event, sock, userId, userName, "animaux", "🐾 𝗤𝘂𝗶𝘇 𝗔𝗻𝗶𝗺𝗮𝘂𝘅", reply);
+          return await this.handleImageQuiz(chatId, event, sock, userId, userName, "animaux", "🐾 𝗤𝘂𝗶𝘇 𝗔𝗻𝗶𝗺𝗮𝘂𝘅", reply);
           
         case "monument":
         case "monuments":
-          return await handleImageQuiz(chatId, event, sock, userId, userName, "monument", "🏛️ 𝗤𝘂𝗶𝘇 𝗠𝗼𝗻𝘂𝗺𝗲𝗻𝘁𝘀", reply);
+          return await this.handleImageQuiz(chatId, event, sock, userId, userName, "monument", "🏛️ 𝗤𝘂𝗶𝘇 𝗠𝗼𝗻𝘂𝗺𝗲𝗻𝘁𝘀", reply);
           
         case "sport":
         case "sports":
-          return await handleImageQuiz(chatId, event, sock, userId, userName, "sport", "⚽ 𝗤𝘂𝗶𝘇 𝗦𝗽𝗼𝗿𝘁", reply);
+          return await this.handleImageQuiz(chatId, event, sock, userId, userName, "sport", "⚽ 𝗤𝘂𝗶𝘇 𝗦𝗽𝗼𝗿𝘁", reply);
           
         case "cinema":
         case "film":
         case "films":
-          return await handleImageQuiz(chatId, event, sock, userId, userName, "cinema", "🎬 𝗤𝘂𝗶𝘇 𝗖𝗶𝗻é𝗺𝗮", reply);
+          return await this.handleImageQuiz(chatId, event, sock, userId, userName, "cinema", "🎬 𝗤𝘂𝗶𝘇 𝗖𝗶𝗻é𝗺𝗮", reply);
           
         case "hard":
         case "difficile":
-          return await handleQuiz(chatId, event, sock, userId, userName, [], reply, "hard");
+          return await this.handleQuiz(chatId, event, sock, userId, userName, [], reply, "hard");
           
         case "medium":
         case "moyen":
-          return await handleQuiz(chatId, event, sock, userId, userName, [], reply, "medium");
+          return await this.handleQuiz(chatId, event, sock, userId, userName, [], reply, "medium");
           
         case "easy":
         case "facile":
-          return await handleQuiz(chatId, event, sock, userId, userName, [], reply, "easy");
+          return await this.handleQuiz(chatId, event, sock, userId, userName, [], reply, "easy");
           
         case "random":
         case "aleatoire":
-          return await handleQuiz(chatId, event, sock, userId, userName, [], reply);
+          return await this.handleQuiz(chatId, event, sock, userId, userName, [], reply);
           
         default:
           const categories = await getAvailableCategories();
           if (categories.includes(command)) {
-            return await handleQuiz(chatId, event, sock, userId, userName, [command], reply);
+            return await this.handleQuiz(chatId, event, sock, userId, userName, [command], reply);
           } else {
-            return await handleDefaultView(chatId, sock, reply, event);
+            return await this.handleDefaultView(chatId, sock, reply, event);
           }
       }
     } catch (err) {
@@ -269,8 +266,8 @@ module.exports = {
     
     // Pour Vrai/Faux
     if (quizData.isTorf) {
-      if (reaction === '👍') userAnswer = 'Vrai';
-      else if (reaction === '❤️') userAnswer = 'Faux';
+      if (reaction === '👍') userAnswer = 'A';
+      else if (reaction === '❤️') userAnswer = 'B';
       else return;
     } 
     // Pour les quiz avec options A/B/C/D
@@ -405,7 +402,7 @@ module.exports = {
   }
 };
 
-// ============ FONCTIONS D'AFFICHAGE NIX ============
+// ============ FONCTIONS D'AFFICHAGE ============
 
 async function handleDefaultView(chatId, sock, reply, event) {
   try {
@@ -423,23 +420,21 @@ async function handleDefaultView(chatId, sock, reply, event) {
       `${icons[c] || '📍'} ${c.charAt(0).toUpperCase() + c.slice(1)}`
     ).join("\n");
 
-    const globalPrefix = global.NixBot?.config?.prefix || '/';
-
     const msg = 
       `🎯 𝗤𝘂𝗶𝘇\n━━━━━━━━\n\n` +
       `📚 𝗖𝗮𝘁𝗲́𝗴𝗼𝗿𝗶𝗲𝘀 (${categories.length})\n\n${catText}\n\n` +
       `━━━━━━━━━\n\n` +
       `🏆 𝗨𝘁𝗶𝗹𝗶𝘀𝗮𝘁𝗶𝗼𝗻\n` +
-      `• ${globalPrefix}quiz rank - Voir votre classement\n` +
-      `• ${globalPrefix}quiz lb - Voir le classement global\n` +
-      `• ${globalPrefix}quiz torf - Quiz Vrai/Faux\n` +
-      `• ${globalPrefix}quiz flag - Quiz drapeaux\n` +
-      `• ${globalPrefix}quiz anime - Quiz anime\n` +
-      `• ${globalPrefix}quiz cartoon - Quiz dessins animés\n` +
-      `• ${globalPrefix}quiz animaux - Quiz animaux\n` +
-      `• ${globalPrefix}quiz monument - Quiz monuments\n` +
-      `• ${globalPrefix}quiz sport - Quiz sport\n\n` +
-      `🎮 Utilisez: ${globalPrefix}quiz <catégorie> pour commencer`;
+      `• ${global.NixBot.config.prefix}quiz rank - Voir votre classement\n` +
+      `• ${global.NixBot.config.prefix}quiz lb - Voir le classement global\n` +
+      `• ${global.NixBot.config.prefix}quiz torf - Quiz Vrai/Faux\n` +
+      `• ${global.NixBot.config.prefix}quiz flag - Quiz drapeaux\n` +
+      `• ${global.NixBot.config.prefix}quiz anime - Quiz anime\n` +
+      `• ${global.NixBot.config.prefix}quiz cartoon - Quiz dessins animés\n` +
+      `• ${global.NixBot.config.prefix}quiz animaux - Quiz animaux\n` +
+      `• ${global.NixBot.config.prefix}quiz monument - Quiz monuments\n` +
+      `• ${global.NixBot.config.prefix}quiz sport - Quiz sport\n\n` +
+      `🎮 Utilisez: ${global.NixBot.config.prefix}quiz <catégorie> pour commencer`;
 
     await sock.sendMessage(chatId, { text: msg }, { quoted: event });
   } catch (err) {
@@ -454,8 +449,7 @@ async function handleRank(chatId, event, sock, userId, userName, reply, usersDat
     const user = res.data;
 
     if (!user || user.total === 0) {
-      const globalPrefix = global.NixBot?.config?.prefix || '/';
-      return reply(`❌ Vous n'avez pas encore joué de quiz ! Utilisez '${globalPrefix}quiz random' pour commencer.\n👤 Bienvenue, ${userName} !`);
+      return reply(`❌ Vous n'avez pas encore joué de quiz ! Utilisez '${global.NixBot.config.prefix}quiz random' pour commencer.\n👤 Bienvenue, ${userName} !`);
     }
 
     const position = user.position ?? "N/A";
@@ -545,12 +539,10 @@ async function handleCategories(chatId, sock, reply, event) {
       `${icons[c] || '📍'} ${c.charAt(0).toUpperCase() + c.slice(1)}`
     ).join("\n");
 
-    const globalPrefix = global.NixBot?.config?.prefix || '/';
-
     const msg = `📚 𝗖𝗮𝘁𝗲́𝗴𝗼𝗿𝗶𝗲𝘀 𝗱𝘂 𝗤𝘂𝗶𝘇 (${categories.length})\n━━━━━━━━\n\n${catText}\n\n` +
-                `🎯 Utilisez: ${globalPrefix}quiz <catégorie>\n` +
-                `🎲 Aléatoire: ${globalPrefix}quiz random\n` +
-                `🏆 Quotidien: ${globalPrefix}quiz daily`;
+                `🎯 Utilisez: ${global.NixBot.config.prefix}quiz <catégorie>\n` +
+                `🎲 Aléatoire: ${global.NixBot.config.prefix}quiz random\n` +
+                `🏆 Quotidien: ${global.NixBot.config.prefix}quiz daily`;
 
     await sock.sendMessage(chatId, { text: msg }, { quoted: event });
   } catch (err) {
@@ -693,11 +685,17 @@ async function handleFlagQuiz(chatId, event, sock, userId, userName, reply) {
 
     let sent;
     if (imageUrl && imageUrl.startsWith('http')) {
-      const stream = await safeStream(imageUrl);
-      sent = await sock.sendMessage(chatId, {
-        image: stream || { url: imageUrl },
-        caption: caption
-      }, { quoted: event });
+      const buffer = await getBufferFromURL(imageUrl);
+      if (buffer) {
+        sent = await sock.sendMessage(chatId, {
+          image: buffer,
+          caption: caption
+        }, { quoted: event });
+      } else {
+        sent = await sock.sendMessage(chatId, {
+          text: caption + `\n\n⚠️ L'image n'a pas pu être chargée.`
+        }, { quoted: event });
+      }
     } else {
       sent = await sock.sendMessage(chatId, {
         text: caption
@@ -748,11 +746,17 @@ async function handleAnimeQuiz(chatId, event, sock, userId, userName, reply) {
 
     let sent;
     if (imageUrl && imageUrl.startsWith('http')) {
-      const stream = await safeStream(imageUrl);
-      sent = await sock.sendMessage(chatId, {
-        image: stream || { url: imageUrl },
-        caption: caption
-      }, { quoted: event });
+      const buffer = await getBufferFromURL(imageUrl);
+      if (buffer) {
+        sent = await sock.sendMessage(chatId, {
+          image: buffer,
+          caption: caption
+        }, { quoted: event });
+      } else {
+        sent = await sock.sendMessage(chatId, {
+          text: caption + `\n\n⚠️ L'image n'a pas pu être chargée.`
+        }, { quoted: event });
+      }
     } else {
       sent = await sock.sendMessage(chatId, {
         text: caption
@@ -803,11 +807,17 @@ async function handleImageQuiz(chatId, event, sock, userId, userName, category, 
 
     let sent;
     if (imageUrl && imageUrl.startsWith('http')) {
-      const stream = await safeStream(imageUrl);
-      sent = await sock.sendMessage(chatId, {
-        image: stream || { url: imageUrl },
-        caption: caption
-      }, { quoted: event });
+      const buffer = await getBufferFromURL(imageUrl);
+      if (buffer) {
+        sent = await sock.sendMessage(chatId, {
+          image: buffer,
+          caption: caption
+        }, { quoted: event });
+      } else {
+        sent = await sock.sendMessage(chatId, {
+          text: caption + `\n\n⚠️ L'image n'a pas pu être chargée.`
+        }, { quoted: event });
+      }
     } else {
       sent = await sock.sendMessage(chatId, {
         text: caption
@@ -869,11 +879,17 @@ async function handleQuiz(chatId, event, sock, userId, userName, args, reply, fo
 
     let sent;
     if (imageUrl && imageUrl.startsWith('http')) {
-      const stream = await safeStream(imageUrl);
-      sent = await sock.sendMessage(chatId, {
-        image: stream || { url: imageUrl },
-        caption: caption
-      }, { quoted: event });
+      const buffer = await getBufferFromURL(imageUrl);
+      if (buffer) {
+        sent = await sock.sendMessage(chatId, {
+          image: buffer,
+          caption: caption
+        }, { quoted: event });
+      } else {
+        sent = await sock.sendMessage(chatId, {
+          text: caption + `\n\n⚠️ L'image n'a pas pu être chargée.`
+        }, { quoted: event });
+      }
     } else {
       sent = await sock.sendMessage(chatId, {
         text: caption
