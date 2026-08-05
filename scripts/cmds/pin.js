@@ -152,7 +152,7 @@ module.exports = {
 
     try {
       // Fetch images from API
-      const apiUrl = `https://egret-driving-cattle.ngrok-free.app/api/pin?query=${encodeURIComponent(query)}&num=90`;
+      const apiUrl = `https://pinspiration-hub.onrender.com/api/pin?query=${encodeURIComponent(query)}&num=90`;
       const res = await axios.get(apiUrl);
       const allImageUrls = res.data.results || [];
 
