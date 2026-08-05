@@ -1,7 +1,7 @@
 const axios = require("axios");
 const { box, bold, line } = require("../../func/style.js");
 
-const BASE_URL = "https://dockerfile-fixer.onrender.com/api";
+const BASE_URL = "https://quiz-api-zd8a.onrender.com/api";
 const ICONS = {
   anime: '🎌', flag: '🏁', cartoon: '📺', animaux: '🐾',
   monument: '🏛️', sport: '⚽', science: '🔬', histoire: '📖',
