@@ -1,82 +1,63 @@
 const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
 const FormData = require("form-data");
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
-
-const cacheDir = path.join(__dirname, "cache");
-if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+const config = require("../../config.json");
+const { box, bold } = require("../../func/style.js");
 
 module.exports = {
   config: {
     name: "imgbb",
-    version: "1.0.0",
-    author: "ArYAN",
-    countDown: 0,
+    aliases: ["i"],
+    version: "1.9",
+    author: "Azadx69x",
+    countDown: 5,
     role: 0,
-    prefix: true,
-    category: "utility",
-    description: "Upload an image to ImgBB",
-    guide: { en: "{pn} - Reply to an image or provide a URL" }
+    category: "upload",
+    description: { en: "Convert an image to an image URL" },
+    guide: { en: "{pn} - Reply to an image or send an image directly" }
   },
 
-  onStart: async function ({ sock, chatId, event, args, reply }) {
-    const msg = event.message || {};
-    const contextInfo = msg?.extendedTextMessage?.contextInfo
-      || msg?.imageMessage?.contextInfo
-      || msg?.videoMessage?.contextInfo
-      || {};
-    const quoted = contextInfo?.quotedMessage || {};
-
-    const imageMsg = quoted?.imageMessage
-      || quoted?.documentWithCaptionMessage?.message?.imageMessage
-      || msg?.imageMessage
-      || null;
-
-    const urlArg = args[0] || null;
-
-    if (!imageMsg && !urlArg) {
-      return reply("❌ Please reply to an image or provide a URL.");
-    }
-
-    await sock.sendMessage(chatId, { react: { text: "⏳", key: event.key } });
-
-    const apiKey = global.NixBot.keys.imgbb;
-
+  onStart: async function ({ sock, chatId, event, reply }) {
     try {
-      let link;
+      const msg = event.message || {};
+      const contextInfo = msg?.extendedTextMessage?.contextInfo;
+      const quoted = contextInfo?.quotedMessage;
+
+      const imageMsg = quoted?.imageMessage
+        || quoted?.documentWithCaptionMessage?.message?.imageMessage
+        || quoted?.viewOnceMessageV2?.message?.imageMessage
+        || msg?.imageMessage
+        || null;
+
+      if (!imageMsg) {
+        return reply(box({ title: "Imgbb", emoji: "❌", body: `Veuillez répondre à une image valide ou en envoyer une directement.` }));
+      }
+
+      const stream = await downloadContentFromMessage(imageMsg, "image");
+      const chunks = [];
+      for await (const chunk of stream) chunks.push(chunk);
+      const imageBuffer = Buffer.concat(chunks);
+
+      if (!imageBuffer || imageBuffer.length < 100) {
+        return reply(box({ title: "Imgbb", emoji: "❌", body: "Impossible de télécharger cette image." }));
+      }
+
       const form = new FormData();
-      form.append("key", apiKey);
+      form.append("key", config.imgbbApiKey);
+      form.append("image", imageBuffer.toString("base64"));
 
-      if (imageMsg) {
-        const stream = await downloadContentFromMessage(imageMsg, "image");
-        const chunks = [];
-        for await (const chunk of stream) chunks.push(chunk);
-        const buffer = Buffer.concat(chunks);
-        form.append("image", buffer.toString("base64"));
-      } else {
-        form.append("image", urlArg);
-      }
+      const response = await axios.post("https://api.imgbb.com/1/upload", form, { headers: form.getHeaders() });
+      const result = response.data.data;
 
-      const res = await axios.post(global.NixBot.apis.imgbb, form, {
-        headers: form.getHeaders(),
-        timeout: 30000
-      });
-
-      link = res.data?.data?.url || res.data?.data?.display_url;
-
-      if (!link) {
-        await sock.sendMessage(chatId, { react: { text: "❌", key: event.key } });
-        return reply("❌ Failed to upload to ImgBB.");
-      }
-
-      await sock.sendMessage(chatId, { react: { text: "✅", key: event.key } });
-      return reply(link);
+      return reply(box({
+        title: "Imgbb",
+        emoji: "🖼️",
+        body: `${bold("URL de l'image")} :\n${result.url}`
+      }));
 
     } catch (err) {
-      console.error("[IMGBB ERROR]", err.message);
-      await sock.sendMessage(chatId, { react: { text: "❌", key: event.key } });
-      return reply("⚠️ Failed to upload. Try again later.");
+      console.error("[IMGBB]", err.message);
+      return reply(box({ title: "Imgbb", emoji: "❌", body: "Échec de l'upload de l'image sur Imgbb." }));
     }
   }
 };

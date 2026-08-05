@@ -1,99 +1,63 @@
-const a = require("axios");
-const b = require("fs");
-const c = require("path");
-const d = require("yt-search");
-
-const nix = global.NixBot.apis.nixConfig;
+const axios = require("axios");
+const { box, bold } = require("../../func/style.js");
 
 module.exports = {
   config: {
     name: "sing",
-    aliases: ["music", "song"],
-    version: "0.0.1",
-    author: "ArYAN",
+    aliases: ["song", "music"],
+    version: "0.0.7",
+    author: "Azadx69x",
     countDown: 5,
     role: 0,
-    shortDescription: "Sing tomake chai",
-    longDescription: "Search and download music from YouTube",
-    category: "MUSIC",
-    guide: "/music <song name or YouTube URL>"
+    category: "social",
+    description: { en: "Sing a song from YouTube" },
+    guide: { en: "{pn} <song name>" }
   },
 
-  onStart: async function ({ sock: e, event: f, args: g, chatId: threadID }) {
-    if (!g.length) return e.sendMessage(threadID, { text: "❌ Provide a song name or YouTube URL." }, { quoted: f });
+  onStart: async function ({ args, chatId, event, reply, sock }) {
+    const query = args.join(" ");
 
-    try {
-        await e.sendMessage(threadID, { react: { text: "🎵", key: f.key } });
-    } catch (e) {}
-
-    let baseApi;
-    const i = await e.sendMessage(threadID, { text: "🎵 Please wait..." }, { quoted: f });
-
-    try {
-      const configRes = await a.get(nix);
-      baseApi = configRes.data && configRes.data.api;
-      if (!baseApi) throw new Error("Configuration Error: Missing API in GitHub JSON.");
-    } catch (error) {
-      if (i && i.key) {
-        try { await e.sendMessage(threadID, { delete: i.key }); } catch (err) {}
-      }
-      return e.sendMessage(threadID, { text: "❌ Failed to fetch API configuration from GitHub." }, { quoted: f });
+    if (!query) {
+      return reply(box({ title: "Sing", emoji: "❌", body: "Veuillez fournir un nom de chanson." }));
     }
 
-    let h = g.join(" ");
-
     try {
-      let j;
-      if (h.startsWith("http")) {
-        j = h;
-      } else {
-        const k = await d(h);
-        if (!k || !k.videos.length) throw new Error("No results found.");
-        j = k.videos[0].url;
+      await sock.sendMessage(chatId, { react: { text: "🔍", key: event.key } });
+
+      const apiUrl = `https://azadx69x-all-apis-top.vercel.app/api/sing?song=${encodeURIComponent(query)}`;
+      const res = await axios.get(apiUrl, { timeout: 30000 });
+
+      if (!res.data?.success || !res.data?.audio?.url) {
+        await sock.sendMessage(chatId, { react: { text: "❌", key: event.key } });
+        return reply(box({ title: "Sing", emoji: "❌", body: "Échec de la récupération de l'audio." }));
       }
 
-      const l = `${baseApi}/play?url=${encodeURIComponent(j)}`;
-      const m = await a.get(l);
-      const n = m.data;
+      const { info, audio } = res.data;
 
-      if (!n.status || !n.downloadUrl) throw new Error("API failed to return download URL.");
+      await sock.sendMessage(chatId, { react: { text: "⬇️", key: event.key } });
 
-      const o = `${n.title}.mp3`.replace(/[\\/:"*?<>|]/g, "");
-      const p = c.join(process.cwd(), 'scripts', 'cmds', 'temp', o);
+      const downloadRes = await axios({
+        url: audio.url,
+        method: "GET",
+        responseType: "arraybuffer",
+        timeout: 60000,
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
 
-      const q = await a.get(n.downloadUrl, { responseType: "arraybuffer" });
-      b.writeFileSync(p, q.data);
+      const buffer = Buffer.from(downloadRes.data);
 
-      await e.sendMessage(
-        threadID,
-        { 
-            audio: b.readFileSync(p), 
-            mimetype: 'audio/mpeg', 
-            fileName: o,
-            ptt: false
-        },
-        { quoted: f }
-      );
-      
-      try {
-          await e.sendMessage(threadID, { react: { text: "✅", key: f.key } });
-      } catch (e) {}
-      
-      if (i && i.key) {
-        try { await e.sendMessage(threadID, { delete: i.key }); } catch (err) {}
-      }
-      
-      b.unlinkSync(p);
+      await sock.sendMessage(chatId, {
+        audio: buffer,
+        mimetype: "audio/mpeg",
+        caption: box({ title: "Sing", emoji: "🎵", body: `${bold("Titre")} : ${info.title}\n${bold("Artiste")} : ${info.artist}` })
+      }, { quoted: event });
 
-    } catch (r) {
-      console.error(r);
-      if (i && i.key) {
-        try { await e.sendMessage(threadID, { delete: i.key }); } catch (err) {}
-      }
-      e.sendMessage(threadID, { text: `❌ Failed to download song: ${r.message}` }, { quoted: f });
-      try {
-          await e.sendMessage(threadID, { react: { text: "❌", key: f.key } });
-      } catch (e) {}
+      await sock.sendMessage(chatId, { react: { text: "✅", key: event.key } });
+
+    } catch (error) {
+      console.error("[SING]", error.message);
+      await sock.sendMessage(chatId, { react: { text: "❌", key: event.key } });
+      return reply(box({ title: "Sing", emoji: "❌", body: `Erreur : ${error.message}` }));
     }
   }
 };

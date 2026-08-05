@@ -1,3 +1,5 @@
+const { box, bold, line } = require("../../func/style.js");
+
 module.exports = {
   config: {
     name: "kick",
@@ -14,14 +16,14 @@ module.exports = {
 
   onStart: async function ({ sock, chatId, event, senderId, args, reply, isGroup }) {
     if (!isGroup) {
-      return reply("This command can only be used in groups.");
+      return reply(box({ title: "Kick", emoji: "❌", body: "This command can only be used in groups." }));
     }
 
     let groupMeta;
     try {
       groupMeta = await sock.groupMetadata(chatId);
     } catch (e) {
-      return reply("Please add admin for bot before using this feature.");
+      return reply(box({ title: "Kick", emoji: "❌", body: "Please add admin for bot before using this feature." }));
     }
 
     const botNumber = (sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || '').replace(/\D/g, '');
@@ -40,7 +42,7 @@ module.exports = {
     }
 
     if (!botIsAdmin) {
-      return reply("Please add admin for bot before using this feature.");
+      return reply(box({ title: "Kick", emoji: "❌", body: "Please add admin for bot before using this feature." }));
     }
 
     let uidsToKick = [];
@@ -92,7 +94,7 @@ module.exports = {
     }
 
     if (uidsToKick.length === 0) {
-      return reply("Please @mention, reply, or provide a phone number to kick.");
+      return reply(box({ title: "Kick", emoji: "❌", body: "Please @mention, reply, or provide a phone number to kick." }));
     }
 
     const successList = [];
@@ -108,15 +110,15 @@ module.exports = {
       }
     }
 
-    let msg2 = "";
+    let body = "";
     if (successList.length > 0) {
-      msg2 += `- Successfully kicked ${successList.length} member(s)`;
+      body += `✅ ${bold("Kické(s) avec succès")} : ${successList.length} membre(s)`;
     }
     if (failedList.length > 0) {
-      if (msg2) msg2 += "\n";
-      msg2 += `- Failed to kick ${failedList.length} member(s)`;
+      if (body) body += "\n" + line + "\n";
+      body += `❌ ${bold("Échec du kick")} : ${failedList.length} membre(s)`;
     }
 
-    return reply(msg2.trim());
+    return reply(box({ title: "Kick", emoji: "👢", body: body.trim() || "Aucune action effectuée." }));
   }
 };

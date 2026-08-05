@@ -3,90 +3,78 @@ const fs = require("fs");
 const path = require("path");
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 const { uploadImage } = global.utils;
+const { box, bold, line } = require("../../func/style.js");
 
 const cacheDir = path.join(__dirname, "cache");
 
 module.exports = {
-    config: {
-        name: "4k",
-        aliases: ["upscale"],
-        version: "1.5",
-        role: 0,
-        author: "ArYAN",
-        countDown: 10,
-        description: "Upscale images to 4K resolution.",
-        category: "image",
-        guide: {
-            en: "{pn} - Reply to an image to upscale it to 4K."
-        }
-    },
+  config: {
+    name: "4k",
+    aliases: [],
+    version: "0.0.7",
+    author: "Azadx69x",
+    countDown: 5,
+    role: 0,
+    category: "image",
+    description: { en: "Upscale image to 4K" },
+    guide: { en: "{pn} - Reply to an image or {pn} <image_url>" }
+  },
 
-    onStart: async function ({ sock, chatId, event, reply }) {
-        const msg = event.message || {};
-        const contextInfo = msg?.extendedTextMessage?.contextInfo
-            || msg?.imageMessage?.contextInfo
-            || msg?.videoMessage?.contextInfo
-            || msg?.buttonsResponseMessage?.contextInfo
-            || msg?.templateButtonReplyMessage?.contextInfo
-            || {};
-        const quoted = contextInfo?.quotedMessage || {};
+  onStart: async function ({ sock, chatId, args, event, reply }) {
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
-        const imageMsg = quoted?.imageMessage
-            || quoted?.documentWithCaptionMessage?.message?.imageMessage
-            || msg?.imageMessage
-            || null;
+    try {
+      let imageUrl;
 
-        if (!imageMsg) {
-            return reply("Please reply to an image to upscale it!");
-        }
+      const contextInfo = event.message?.extendedTextMessage?.contextInfo;
+      const quoted = contextInfo?.quotedMessage;
+      const imageMsg = quoted?.imageMessage
+        || quoted?.documentWithCaptionMessage?.message?.imageMessage
+        || quoted?.viewOnceMessageV2?.message?.imageMessage
+        || null;
 
-        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-        const cachePath = path.join(cacheDir, `upscale_${Date.now()}.png`);
-        let processingMsg;
+      if (imageMsg) {
+        const stream = await downloadContentFromMessage(imageMsg, "image");
+        const chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        const buffer = Buffer.concat(chunks);
+        if (!buffer || buffer.length < 100) throw new Error("Échec du téléchargement de l'image.");
+        imageUrl = await uploadImage(buffer);
+      } else if (args[0] && args[0].startsWith("http")) {
+        imageUrl = args[0];
+      } else {
+        return reply(box({
+          title: "4K Upscale",
+          emoji: "❌",
+          body: `Veuillez répondre à une image ou fournir une ${bold("URL")} d'image.`
+        }));
+      }
 
-        try {
-            const baseApi = global.NixBot.apis.base;
+      const waitMsg = await sock.sendMessage(chatId, {
+        text: box({ title: "4K Upscale", emoji: "😺", body: `${bold("Traitement en cours")}...\n⏳ Veuillez patienter...` })
+      }, { quoted: event });
 
-            const waitMsg = await sock.sendMessage(chatId, { text: "Processing your image to 4K, please wait..." }, { quoted: event });
-            processingMsg = waitMsg.key;
+      const apiUrl = `https://azadx69x-4k-apis.vercel.app/api/4k?imgUrl=${encodeURIComponent(imageUrl)}`;
+      const response = await axios.get(apiUrl, { timeout: 60000 });
 
-            const stream = await downloadContentFromMessage(imageMsg, "image");
-            const chunks = [];
-            for await (const chunk of stream) chunks.push(chunk);
-            const buffer = Buffer.concat(chunks);
+      if (response.data.status !== "success" || !response.data.upscaledImage) {
+        throw new Error("L'upscale a échoué.");
+      }
 
-            if (!buffer || buffer.length < 100) throw new Error("Failed to download image.");
+      const upscaledImageUrl = response.data.upscaledImage;
+      const imageResponse = await axios.get(upscaledImageUrl, { responseType: "arraybuffer", timeout: 30000 });
+      const buffer = Buffer.from(imageResponse.data);
 
-            const imageUrl = await uploadImage(buffer);
+      await sock.sendMessage(chatId, { delete: waitMsg.key });
 
-            const response = await axios.get(`${baseApi}/aryan/4k`, {
-                params: { imageUrl },
-                timeout: 120000
-            });
+      await sock.sendMessage(chatId, {
+        image: buffer,
+        caption: box({ title: "4K Upscale", emoji: "✅", body: `${bold("Image upscalée en 4K avec succès")} !` })
+      }, { quoted: event });
 
-            if (!response.data.status) throw new Error(response.data.message || "API Error");
-
-            const enhancedImg = await axios.get(response.data.enhancedImageUrl, {
-                responseType: "arraybuffer",
-                timeout: 60000
-            });
-            fs.writeFileSync(cachePath, Buffer.from(enhancedImg.data));
-
-            await sock.sendMessage(chatId, {
-                image: fs.readFileSync(cachePath),
-                caption: "Your 4K upscaled image is ready!"
-            }, { quoted: event });
-
-        } catch (e) {
-            console.error("[4K] Error:", e.message);
-            reply(`Error: ${e.message}`);
-        } finally {
-            if (processingMsg) {
-                try { await sock.sendMessage(chatId, { delete: processingMsg }); } catch (e) {}
-            }
-            if (fs.existsSync(cachePath)) {
-                try { fs.unlinkSync(cachePath); } catch (e) {}
-            }
-        }
+    } catch (error) {
+      console.error("[4K] Upscale error:", error.message);
+      reply(box({ title: "4K Upscale", emoji: "❌", body: `Échec de l'upscale 4K. Réessayez.\n${line}\n${error.message}` }));
     }
+  }
 };
