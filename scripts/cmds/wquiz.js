@@ -147,9 +147,12 @@ async function sendQuestion({ sock, chatId, event, senderId, title, body, imageU
   setTimeout(async () => {
     const found = global.NixBot.onReply.find(r => r.messageID === sentMsg.key.id);
     if (found) {
-      await sock.sendMessage(chatId, {
-        text: box({ title: "Temps écoulé", emoji: "⏰", body: `${bold("Bonne réponse")} : ${data.answer}` })
-      }, { quoted: event }).catch(() => {});
+      const timeoutMsg = box({ 
+        title: "⏰ Temps écoulé", 
+        emoji: "⏰", 
+        body: `La bonne réponse était : ${bold(data.answer)}` 
+      });
+      await sock.sendMessage(chatId, { text: timeoutMsg }, { quoted: event }).catch(() => {});
       removeReply(sentMsg.key.id);
     }
   }, 30000);
@@ -319,7 +322,7 @@ async function handleDailyChallenge({ sock, chatId, event, senderId, reply }) {
     const body = `📅 ${challengeDate}\n🎯 Récompense bonus: +${reward} XP\n🔥 Série quotidienne: ${streak}\n\n❓ ${question.question}\n\n${optionsText(question.options)}\n\n⏰ 30 secondes pour répondre !`;
 
     await sendQuestion({
-      sock, chatId, event, senderId, title: "Défi quotidien", body,
+      sock, chatId, event, senderId, title: "🌟 Défi quotidien", body,
       data: { emoji: "🌟", answer: question.answer, questionId: question._id, isDailyChallenge: true, bonusReward: reward, options: question.options }
     });
   } catch (err) {
@@ -336,7 +339,7 @@ async function handleTrueOrFalse({ sock, chatId, event, senderId, reply }) {
     const body = `💭 ${bold("Question")}: ${question}\n\n⏰ 30 secondes pour répondre`;
 
     await sendQuestion({
-      sock, chatId, event, senderId, title: "Quiz (Vrai/Faux)", body,
+      sock, chatId, event, senderId, title: "⚖️ Quiz Vrai/Faux", body,
       data: { emoji: "⚖️", answer: correctAnswer, questionId: _id, isTorf: true }
     });
   } catch (err) {
@@ -354,7 +357,7 @@ async function handleFlagQuiz({ sock, chatId, event, senderId, reply }) {
     }
     const body = `🌍 Devinez le pays de ce drapeau :\n\n${optionsText(options)}\n\n⏰ 30 secondes pour répondre.`;
     await sendQuestion({
-      sock, chatId, event, senderId, title: "Quiz drapeaux", body, imageUrl,
+      sock, chatId, event, senderId, title: "🏁 Quiz drapeaux", body, imageUrl,
       data: { emoji: "🏁", answer, options, questionId: _id, isFlag: true, reward: 12000 }
     });
   } catch (err) {
@@ -373,7 +376,7 @@ async function handleAnimeQuiz({ sock, chatId, event, senderId, reply }) {
     }
     const body = `❔ ${bold("Indice")}: ${hint || question}\n\n${optionsText(options)}\n\n⏰ 30 secondes\n🎯 Défi de reconnaissance de personnage !`;
     await sendQuestion({
-      sock, chatId, event, senderId, title: "Quiz Anime", body, imageUrl,
+      sock, chatId, event, senderId, title: "🎌 Quiz Anime", body, imageUrl,
       data: { emoji: "🎌", answer, options, questionId: _id, isAnime: true, reward: 15000 }
     });
   } catch (err) {
@@ -421,7 +424,7 @@ async function handleQuiz({ sock, chatId, event, senderId, reply, args, forcedDi
       `❓ ${bold("Question")}: ${hint || question}\n\n${optionsText(options)}\n\n⏰ Vous avez 30 secondes pour répondre (👍❤️😂😮):`;
 
     await sendQuestion({
-      sock, chatId, event, senderId, title: "Quiz Challenge", body, imageUrl,
+      sock, chatId, event, senderId, title: "🎯 Quiz Challenge", body, imageUrl,
       data: { emoji: "🎯", answer, options, questionId: _id, difficulty, category: qCategory, isImage: !!imageUrl }
     });
   } catch (err) {
@@ -480,20 +483,20 @@ module.exports = {
         case "dessin":
         case "dessins":
         case "kids":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "cartoon", title: "Quiz Dessins Animés", emoji: "📺" });
+          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "cartoon", title: "📺 Quiz Dessins Animés", emoji: "📺" });
         case "animaux":
         case "animal":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "animaux", title: "Quiz Animaux", emoji: "🐾" });
+          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "animaux", title: "🐾 Quiz Animaux", emoji: "🐾" });
         case "monument":
         case "monuments":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "monument", title: "Quiz Monuments", emoji: "🏛️" });
+          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "monument", title: "🏛️ Quiz Monuments", emoji: "🏛️" });
         case "sport":
         case "sports":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "sport", title: "Quiz Sport", emoji: "⚽" });
+          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "sport", title: "⚽ Quiz Sport", emoji: "⚽" });
         case "cinema":
         case "film":
         case "films":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "cinema", title: "Quiz Cinéma", emoji: "🎬" });
+          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "cinema", title: "🎬 Quiz Cinéma", emoji: "🎬" });
         case "hard":
           return await handleQuiz({ sock, chatId, event, senderId, reply, args: ["general"], forcedDifficulty: "hard" });
         case "medium":
@@ -562,7 +565,12 @@ module.exports = {
     const timeSpent = (Date.now() - data.startTime) / 1000;
     if (timeSpent > 30) {
       removeReply(data.messageID);
-      return reply(box({ title: "Temps écoulé", emoji: "⏰", body: `Trop tard ! La bonne réponse était : ${data.answer}` }));
+      const timeoutMsg = box({ 
+        title: "⏰ Temps écoulé", 
+        emoji: "⏰", 
+        body: `La bonne réponse était : ${bold(data.answer)}` 
+      });
+      return reply(timeoutMsg);
     }
     
     let userAnswer;
@@ -628,20 +636,21 @@ module.exports = {
       responseMsg = box({
         title: "🎉 Bonne réponse !", 
         emoji: "🎉",
-        body: `💵 ${bold("Argent")}: +${totalMoneyReward.toLocaleString()}\n` +
+        body: `✅ Bravo ${userName} ! Tu as trouvé la bonne réponse !\n\n` +
+              `💵 ${bold("Argent")}: +${totalMoneyReward.toLocaleString()}\n` +
               `✨ ${bold("XP")}: +${xpGained}\n` +
               `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
               `🔥 ${bold("Série")}: ${user.currentStreak || 0}\n` +
-              `⚡ ${bold("Temps de réponse")}: ${timeSpent.toFixed(1)}s\n` +
-              `👤 ${userName}`
+              `⚡ ${bold("Temps de réponse")}: ${timeSpent.toFixed(1)}s`
       });
     } else {
       responseMsg = box({
         title: "❌ Mauvaise réponse", 
         emoji: "❌",
-        body: `🎯 ${bold("Bonne réponse")}: ${data.answer}\n` +
+        body: `😢 Désolé ${userName}, ce n'était pas la bonne réponse.\n\n` +
+              `🎯 ${bold("Bonne réponse")}: ${data.answer}\n` +
               `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
-              `💔 Série réinitialisée\n👤 ${userName}`
+              `💔 Série réinitialisée`
       });
     }
     
