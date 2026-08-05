@@ -2,6 +2,7 @@ const axios = require('axios');
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs-extra');
 const path = require('path');
+const { box, bold, line } = require('../../func/style.js');
 
 // Helper to download an image from URL and return a buffer
 async function getBufferFromURL(url) {
@@ -141,12 +142,12 @@ module.exports = {
 
     const query = args.join(' ').trim();
     if (!query) {
-      return reply(`❌ Usage: ${prefix}${commandName} <query> [-count]`);
+      return reply(box({ title: 'Pinterest', emoji: '📌', body: `❌ Usage : ${prefix}${commandName} <query> [-count]` }));
     }
 
     // Send processing message
     const waitMsg = await sock.sendMessage(chatId, {
-      text: '🔍 Recherche sur Pinterest...'
+      text: box({ title: 'Pinterest', emoji: '📌', body: '🔍 Recherche sur Pinterest...' })
     }, { quoted: event });
 
     try {
@@ -157,7 +158,7 @@ module.exports = {
 
       if (allImageUrls.length === 0) {
         await sock.sendMessage(chatId, { delete: waitMsg.key });
-        return reply(`❌ Aucune image trouvée pour "${query}".`);
+        return reply(box({ title: 'Pinterest', emoji: '📌', body: `❌ Aucune image trouvée pour "${query}".` }));
       }
 
       // Direct download mode (with count)
@@ -171,14 +172,14 @@ module.exports = {
         await sock.sendMessage(chatId, { delete: waitMsg.key });
 
         if (validBuffers.length === 0) {
-          return reply('❌ Impossible de récupérer les images demandées.');
+          return reply(box({ title: 'Pinterest', emoji: '📌', body: '❌ Impossible de récupérer les images demandées.' }));
         }
 
         // Send each image individually
         for (const buffer of validBuffers) {
           await sock.sendMessage(chatId, {
             image: buffer,
-            caption: `📸 Image pour "${query}"`
+            caption: box({ title: 'Pinterest', emoji: '📸', body: `Image pour "${query}"` })
           }, { quoted: event });
         }
         return;
@@ -205,7 +206,7 @@ module.exports = {
       const canvasBuffer = fs.readFileSync(canvasPath);
       const sentMsg = await sock.sendMessage(chatId, {
         image: canvasBuffer,
-        caption: `🖼️ ${allImageUrls.length} images trouvées pour "${query}".\nRépondez avec un numéro (affiché sur le canvas) pour obtenir l’image, ou “next” pour plus.`
+        caption: box({ title: 'Pinterest', emoji: '🖼️', body: `${bold(String(allImageUrls.length))} images trouvées pour "${query}".\nRépondez avec un numéro (affiché sur le canvas) pour obtenir l'image, ou "next" pour plus.` })
       }, { quoted: event });
 
       // Clean up temp file
@@ -231,7 +232,7 @@ module.exports = {
     } catch (error) {
       console.error('[PINTEREST]', error);
       await sock.sendMessage(chatId, { delete: waitMsg.key });
-      reply('❌ Une erreur est survenue. Le serveur ou l\'API peut être indisponible.');
+      reply(box({ title: 'Pinterest', emoji: '📌', body: "❌ Une erreur est survenue. Le serveur ou l'API peut être indisponible." }));
     }
   },
 
@@ -251,7 +252,7 @@ module.exports = {
     if (input === 'next') {
       if (data.currentPage >= data.totalPages) {
         return sock.sendMessage(chatId, {
-          text: '❌ Vous êtes déjà sur la dernière page des résultats.'
+          text: box({ title: 'Pinterest', emoji: '📌', body: '❌ Vous êtes déjà sur la dernière page des résultats.' })
         }, { quoted: event });
       }
 
@@ -265,7 +266,7 @@ module.exports = {
 
       // Send "loading" message
       const loadingMsg = await sock.sendMessage(chatId, {
-        text: `⏳ Chargement de la page ${nextPage}...`
+        text: box({ title: 'Pinterest', emoji: '📌', body: `⏳ Chargement de la page ${nextPage}...` })
       }, { quoted: event });
 
       const { outputPath: canvasPath, displayedMap: nextDisplayedMap } = await generatePinterestCanvas(
@@ -279,7 +280,7 @@ module.exports = {
       const canvasBuffer = fs.readFileSync(canvasPath);
       const sentMsg = await sock.sendMessage(chatId, {
         image: canvasBuffer,
-        caption: `🖼️ Page ${nextPage}/${data.totalPages}.\nRépondez avec un numéro (du canvas) pour obtenir l’image, ou “next” pour continuer.`
+        caption: box({ title: 'Pinterest', emoji: '🖼️', body: `Page ${bold(String(nextPage))}/${data.totalPages}.\nRépondez avec un numéro (du canvas) pour obtenir l'image, ou "next" pour continuer.` })
       }, { quoted: event });
 
       // Clean up
@@ -309,20 +310,20 @@ module.exports = {
     const number = parseInt(input, 10);
     if (isNaN(number) || number <= 0) {
       return sock.sendMessage(chatId, {
-        text: '❌ Répondez avec un numéro (du canvas) pour obtenir l’image, ou “next” pour charger d’autres pages.'
+        text: box({ title: 'Pinterest', emoji: '📌', body: "❌ Répondez avec un numéro (du canvas) pour obtenir l'image, ou 'next' pour charger d'autres pages." })
       }, { quoted: event });
     }
 
     if (number > data.displayCount) {
       return sock.sendMessage(chatId, {
-        text: `❌ Numéro invalide. Le canvas actuel affiche seulement ${data.displayCount} image(s). Choisissez un numéro de 1 à ${data.displayCount}, ou tapez “next” pour charger plus.`
+        text: box({ title: 'Pinterest', emoji: '📌', body: `❌ Numéro invalide. Le canvas actuel affiche seulement ${data.displayCount} image(s). Choisissez un numéro de 1 à ${data.displayCount}, ou tapez 'next' pour charger plus.` })
       }, { quoted: event });
     }
 
     const originalIndex = data.displayedMap[number - 1];
     if (originalIndex == null || originalIndex < 0 || originalIndex >= data.allImageUrls.length) {
       return sock.sendMessage(chatId, {
-        text: '❌ Impossible de trouver cette image. Réessayez avec un autre numéro.'
+        text: box({ title: 'Pinterest', emoji: '📌', body: '❌ Impossible de trouver cette image. Réessayez avec un autre numéro.' })
       }, { quoted: event });
     }
 
@@ -330,14 +331,14 @@ module.exports = {
     const buffer = await getBufferFromURL(imageUrl).catch(() => null);
     if (!buffer) {
       return sock.sendMessage(chatId, {
-        text: '❌ Impossible de récupérer l’image demandée.'
+        text: box({ title: 'Pinterest', emoji: '📌', body: "❌ Impossible de récupérer l'image demandée." })
       }, { quoted: event });
     }
 
     // Send the selected image
     await sock.sendMessage(chatId, {
       image: buffer,
-      caption: `📸 Image #${number} pour la requête "${data.query}"`
+      caption: box({ title: 'Pinterest', emoji: '📸', body: `Image #${bold(String(number))} pour la requête "${data.query}"` })
     }, { quoted: event });
 
     // Keep the reply handler active for further selections; do not delete data.
