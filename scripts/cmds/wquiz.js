@@ -65,8 +65,13 @@ function registerReply(data) {
   if (!global.NixBot.onReply) {
     global.NixBot.onReply = [];
   }
+  const existingIndex = global.NixBot.onReply.findIndex(r => r.messageID === data.messageID);
+  if (existingIndex !== -1) {
+    global.NixBot.onReply.splice(existingIndex, 1);
+  }
   global.NixBot.onReply.push(data);
   console.log("[QUIZ] Reply enregistré:", data.messageID);
+  console.log("[QUIZ] Données:", JSON.stringify(data, null, 2));
 }
 
 function removeReply(messageID) {
@@ -77,13 +82,19 @@ function removeReply(messageID) {
   }
 }
 
-async function sendQuestion({ sock, chatId, event, senderId, commandName, title, body, imageUrl, data }) {
+async function sendQuestion({ sock, chatId, event, senderId, title, body, imageUrl, data }) {
   const buffer = imageUrl ? await fetchImageBuffer(imageUrl) : null;
   let sentMsg;
+  
   if (buffer) {
-    sentMsg = await sock.sendMessage(chatId, { image: buffer, caption: box({ title, emoji: data.emoji || "🎯", body }) }, { quoted: event });
+    sentMsg = await sock.sendMessage(chatId, { 
+      image: buffer, 
+      caption: box({ title, emoji: data.emoji || "🎯", body }) 
+    }, { quoted: event });
   } else {
-    sentMsg = await sock.sendMessage(chatId, { text: box({ title, emoji: data.emoji || "🎯", body }) }, { quoted: event });
+    sentMsg = await sock.sendMessage(chatId, { 
+      text: box({ title, emoji: data.emoji || "🎯", body }) 
+    }, { quoted: event });
   }
 
   const replyData = {
@@ -385,7 +396,7 @@ module.exports = {
   config: {
     name: "quiz",
     aliases: ["wkuiz", "kuiz"],
-    version: "4.1",
+    version: "4.2",
     author: "Christus",
     countDown: 0,
     role: 0,
@@ -473,16 +484,17 @@ module.exports = {
     try {
       const contextInfo = event?.message?.extendedTextMessage?.contextInfo;
       const repliedId = contextInfo?.stanzaId;
+      const quotedMessage = contextInfo?.quotedMessage || {};
 
       console.log("[QUIZ] repliedId:", repliedId);
+      console.log("[QUIZ] event.message:", JSON.stringify(event?.message, null, 2));
 
       if (!repliedId) {
         console.log("[QUIZ] ❌ stanzaId introuvable.");
         return;
       }
 
-      console.log("[QUIZ] onReply actuel:", global.NixBot.onReply);
-
+      // Recherche du handler comme Pinterest
       let data = global.NixBot.onReply.find(r => 
         r.commandName === "quiz" && 
         r.messageID === repliedId
@@ -494,6 +506,7 @@ module.exports = {
 
       if (!data) {
         console.log("[QUIZ] ❌ Aucun handler correspondant.");
+        console.log("[QUIZ] onReply disponibles:", global.NixBot.onReply);
         return;
       }
 
@@ -504,13 +517,15 @@ module.exports = {
         return;
       }
 
+      // Récupération du texte comme Pinterest
       const text = (
         event?.message?.conversation ||
         event?.message?.extendedTextMessage?.text ||
         event?.message?.imageMessage?.caption ||
         event?.message?.videoMessage?.caption ||
+        event?.message?.documentMessage?.caption ||
         ""
-      ).trim();
+      ).trim().toUpperCase();
 
       console.log("[QUIZ] Texte reçu:", text);
 
@@ -519,32 +534,33 @@ module.exports = {
         return;
       }
 
+      // Vérification du temps
       const timeSpent = (Date.now() - data.startTime) / 1000;
       if (timeSpent > 30) {
         removeReply(data.messageID);
-        return reply(box({ title: "Temps écoulé", emoji: "⏰", body: "Trop tard !" }));
+        return reply(box({ title: "Temps écoulé", emoji: "⏰", body: `Trop tard ! La bonne réponse était : ${data.answer}` }));
       }
 
       let userAnswer;
-      let isCorrect;
+      let isCorrect = false;
 
+      // Traitement des réponses comme Pinterest
       if (data.isTorf) {
-        const ans = text.toUpperCase();
-        if (!["VRAI", "FAUX", "V", "F"].includes(ans)) {
+        if (!["VRAI", "FAUX", "V", "F"].includes(text)) {
           return reply(box({ title: "Quiz", emoji: "❌", body: "Veuillez répondre par VRAI ou FAUX uniquement !" }));
         }
-        userAnswer = (ans === "VRAI" || ans === "V") ? "A" : "B";
+        userAnswer = (text === "VRAI" || text === "V") ? "A" : "B";
         isCorrect = userAnswer === data.answer;
       } else {
-        const ans = text.toUpperCase();
-        if (!["A", "B", "C", "D"].includes(ans)) {
+        if (!["A", "B", "C", "D"].includes(text)) {
           return reply(box({ title: "Quiz", emoji: "❌", body: "Veuillez répondre avec A, B, C ou D uniquement !" }));
         }
+        
         if ((data.isFlag || data.isAnime || data.isImage || data.isDailyChallenge) && data.options) {
-          const optionIndex = ans.charCodeAt(0) - 65;
-          userAnswer = optionIndex >= 0 && optionIndex < data.options.length ? data.options[optionIndex] : ans;
+          const optionIndex = text.charCodeAt(0) - 65;
+          userAnswer = optionIndex >= 0 && optionIndex < data.options.length ? data.options[optionIndex] : text;
         } else {
-          userAnswer = ans;
+          userAnswer = text;
         }
         isCorrect = String(userAnswer).toLowerCase() === String(data.answer).toLowerCase();
       }
@@ -555,6 +571,7 @@ module.exports = {
 
       const userName = event.pushName || "Joueur Anonyme";
       let user = {};
+      
       try {
         const answerData = { 
           userId: senderId, 
@@ -593,7 +610,8 @@ module.exports = {
         });
 
         responseMsg = box({
-          title: "Bonne réponse !", emoji: "🎉",
+          title: "🎉 Bonne réponse !", 
+          emoji: "🎉",
           body: `💵 ${bold("Argent")}: +${totalMoneyReward.toLocaleString()}\n` +
                 `✨ ${bold("XP")}: +${xpGained}\n` +
                 `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
@@ -603,7 +621,8 @@ module.exports = {
         });
       } else {
         responseMsg = box({
-          title: "Mauvaise réponse", emoji: "❌",
+          title: "❌ Mauvaise réponse", 
+          emoji: "❌",
           body: `🎯 ${bold("Bonne réponse")}: ${data.answer}\n` +
                 `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
                 `💔 Série réinitialisée\n👤 ${userName}`
@@ -612,6 +631,7 @@ module.exports = {
 
       await reply(responseMsg);
 
+      // Succès débloqués
       if (user.achievements && user.achievements.length > 0) {
         const achievementMsg = user.achievements.map(ach => `🏆 ${ach}`).join('\n');
         const freshData = await usersData.get(senderId);
@@ -620,7 +640,7 @@ module.exports = {
           exp: (freshData.exp || 0) + 100 
         });
         await reply(box({ 
-          title: "Succès débloqué !", 
+          title: "🏆 Succès débloqué !", 
           emoji: "🏆", 
           body: `${achievementMsg}\n💰 +50 000 pièces bonus !\n✨ +100 XP bonus !` 
         }));
