@@ -1,129 +1,143 @@
-const yts = require("yt-search");
 const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
-
-const nixConfig = global.NixBot.apis.nixConfig;
+const yts = require("yt-search");
+const { box, bold } = require("../../func/style.js");
 
 module.exports = {
   config: {
     name: "video",
-    version: "0.0.1",
-    author: "ArYAN",
+    aliases: [],
+    version: "2.2",
+    author: "Rômeo",
     countDown: 5,
     role: 0,
-    prefix: true,
     category: "media",
-    description: "Download YouTube video by search or link",
-    guide: {
-      en: "{pn} <search query> - Search & download video"
-        + "\n{pn} <youtube link> - Direct download video"
-    }
+    description: { en: "Search and download video from YouTube or direct URL" },
+    guide: { en: "{pn} <search term or URL>" }
   },
 
-  onStart: async function ({ sock, chatId, args, event, senderId, reply, prefix, commandName }) {
-    const query = args.join(" ").trim();
-    if (!query) return reply("Please provide a search query or YouTube link.");
+  onStart: async function ({ args, chatId, event, reply, sock, senderId, commandName }) {
+    if (args.length < 1) {
+      return reply(box({ title: "Video", emoji: "❌", body: `Utilisation : ${bold("{pn} <terme de recherche ou URL>")}` }));
+    }
 
-    if (query.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//)) {
-      const wait = await sock.sendMessage(chatId, { text: "Downloading video, please wait..." }, { quoted: event });
-      await downloadVideo(query, sock, chatId, event);
-      try { await sock.sendMessage(chatId, { delete: wait.key }); } catch (e) {}
+    const input = args.join(" ");
+
+    if (input.startsWith("http")) {
+      try {
+        const videoId = extractVideoId(input);
+        let videoInfo = null;
+        if (videoId) {
+          try { videoInfo = await yts({ videoId }); } catch (e) { videoInfo = null; }
+        }
+        await downloadDirectVideo(sock, chatId, event, reply, input, videoInfo);
+      } catch (error) {
+        await downloadDirectVideo(sock, chatId, event, reply, input, null);
+      }
       return;
     }
 
     try {
-      const search = await yts(query);
-      const results = search.videos.slice(0, 6);
-      if (results.length === 0) return reply("No results found.");
+      const searchResults = await yts(input);
+      const videos = searchResults.videos.slice(0, 6);
+      if (videos.length === 0) {
+        return reply(box({ title: "Video", emoji: "⭕", body: `Aucun résultat trouvé pour : ${input}` }));
+      }
 
-      let msg = "YouTube Search Results:\n\n";
-      results.forEach((v, i) => {
-        msg += `${i + 1}. ${v.title}\n   Duration: ${v.timestamp}\n   Views: ${v.views?.toLocaleString() || "N/A"}\n\n`;
+      let list = "";
+      videos.forEach((video, index) => {
+        list += `${bold(String(index + 1))}. ${video.title}\n   ⏱ ${video.timestamp} | 📺 ${video.author.name}\n\n`;
       });
-      msg += "Reply with the number (1-6) to download.";
 
-      const sent = await sock.sendMessage(chatId, {
-        image: { url: results[0].thumbnail },
-        caption: msg
+      const sentMsg = await sock.sendMessage(chatId, {
+        text: box({ title: "Video", emoji: "🎬", body: `${list}Répondez avec un numéro pour sélectionner.` })
       }, { quoted: event });
 
       global.NixBot.onReply.push({
-        commandName: "video",
-        messageID: sent.key.id,
+        commandName,
+        messageID: sentMsg.key.id,
         author: senderId,
-        results: results
+        videos
       });
 
-    } catch (err) {
-      console.error("[VIDEO] Search error:", err.message);
-      return reply("Search failed: " + err.message);
+    } catch (error) {
+      console.error("[VIDEO]", error.message);
+      return reply(box({ title: "Video", emoji: "❌", body: "Échec de la recherche YouTube." }));
     }
   },
 
-  onReply: async function ({ sock, chatId, message, senderId, event }) {
-    const repliedMsgId = event.message?.extendedTextMessage?.contextInfo?.stanzaId;
-    if (!repliedMsgId) return;
+  onReply: async function ({ event, chatId, reply, sock, senderId, commandName }) {
+    const repliedId = event.message?.extendedTextMessage?.contextInfo?.stanzaId;
+    if (!repliedId) return;
 
-    const data = global.NixBot.onReply.find(
-      r => r.commandName === "video" && r.author === senderId && r.messageID === repliedMsgId
-    );
+    const data = global.NixBot.onReply.find(r => r.commandName === commandName && r.messageID === repliedId);
     if (!data) return;
+    if (data.author !== senderId) return;
 
-    const text = message.message?.conversation || message.message?.extendedTextMessage?.text || "";
-    const index = parseInt(text) - 1;
-    if (isNaN(index) || index < 0 || index >= data.results.length) return;
+    const body = event.message?.conversation || event.message?.extendedTextMessage?.text || "";
+    const choice = parseInt(body.trim(), 10);
 
-    const selected = data.results[index];
+    if (isNaN(choice) || choice <= 0 || choice > data.videos.length) {
+      return reply(box({ title: "Video", emoji: "❌", body: "Veuillez entrer un numéro valide." }));
+    }
 
-    const idx = global.NixBot.onReply.findIndex(r => r.messageID === data.messageID);
-    if (idx !== -1) global.NixBot.onReply.splice(idx, 1);
-
-    try {
-      await sock.sendMessage(chatId, {
-        delete: { remoteJid: chatId, fromMe: true, id: data.messageID }
-      });
-    } catch (e) {}
-
-    const wait = await sock.sendMessage(chatId, { text: `Downloading: ${selected.title}...` }, { quoted: event });
-    await downloadVideo(selected.url, sock, chatId, event);
-    try { await sock.sendMessage(chatId, { delete: wait.key }); } catch (e) {}
+    const selected = data.videos[choice - 1];
+    await downloadDirectVideo(sock, chatId, event, reply, selected.url, selected);
   }
 };
 
-async function downloadVideo(url, sock, chatId, event) {
-  const tmpDir = path.join(__dirname, "cache");
-  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+function extractVideoId(url) {
+  const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+  const match = url.match(regex);
+  return match ? match[1] : null;
+}
+
+async function downloadDirectVideo(sock, chatId, event, reply, videoUrl, videoInfo) {
+  const waitMsg = await sock.sendMessage(chatId, {
+    text: box({ title: "Video", emoji: "⏳", body: "Téléchargement en cours..." })
+  }, { quoted: event });
 
   try {
-    let configRes;
-    try {
-      configRes = await axios.get(nixConfig, { timeout: 10000 });
-    } catch (e) {
-      throw new Error("Failed to fetch API config.");
+    const BASE_URL = await getApiUrl();
+    if (!BASE_URL) {
+      await sock.sendMessage(chatId, { delete: waitMsg.key });
+      return reply(box({ title: "Video", emoji: "❌", body: "Impossible de récupérer l'API. Réessayez plus tard." }));
     }
-    const apiData = configRes.data;
-    const nixtubeApi = apiData.nixtube;
 
-    const apiUrl = `${nixtubeApi}?url=${encodeURIComponent(url)}&type=mp4`;
-    const { data } = await axios.get(apiUrl, { timeout: 30000 });
-    const downloadUrl = data.downloadUrl || data.download_url;
-    if (!downloadUrl) throw new Error("No download URL returned.");
+    const { data } = await axios.get(`${BASE_URL}/api/ytb?url=${encodeURIComponent(videoUrl)}`, { timeout: 60000 });
+    if (!data.mp4) {
+      await sock.sendMessage(chatId, { delete: waitMsg.key });
+      return reply(box({ title: "Video", emoji: "❌", body: "Impossible de récupérer un fichier vidéo. Essayez une autre URL." }));
+    }
 
-    const filePath = path.join(tmpDir, `video_${Date.now()}.mp4`);
-    const response = await axios.get(downloadUrl, { responseType: "arraybuffer", timeout: 120000 });
-    fs.writeFileSync(filePath, Buffer.from(response.data));
+    const videoResponse = await axios.get(data.mp4, { responseType: "arraybuffer", timeout: 120000 });
+    const buffer = Buffer.from(videoResponse.data);
+
+    const title = videoInfo ? videoInfo.title : (data.title || "Titre inconnu");
+    const channel = videoInfo ? videoInfo.author?.name : (data.author || "Chaîne inconnue");
+
+    await sock.sendMessage(chatId, { delete: waitMsg.key });
 
     await sock.sendMessage(chatId, {
-      video: fs.readFileSync(filePath),
-      caption: data.title || "Downloaded by NixBot",
-      mimetype: "video/mp4"
+      video: buffer,
+      caption: box({ title: "Video", emoji: "📥", body: `${bold("Téléchargement réussi")} :\n• ${bold("Titre")} : ${title}\n• ${bold("Chaîne")} : ${channel}` })
     }, { quoted: event });
 
-    try { fs.unlinkSync(filePath); } catch (e) {}
+  } catch (e) {
+    console.error("[VIDEO]", e.message);
+    await sock.sendMessage(chatId, { delete: waitMsg.key });
+    return reply(box({ title: "Video", emoji: "❌", body: "Échec du téléchargement." }));
+  }
+}
 
-  } catch (err) {
-    console.error("[VIDEO] Download error:", err.message);
-    await sock.sendMessage(chatId, { text: "Download failed: " + err.message }, { quoted: event });
+async function getApiUrl() {
+  try {
+    const { data } = await axios.get(
+      "https://raw.githubusercontent.com/romeoislamrasel/romeobot/refs/heads/main/api.json",
+      { timeout: 15000 }
+    );
+    return data.api;
+  } catch (error) {
+    console.error("[VIDEO] getApiUrl error:", error.message);
+    return null;
   }
 }

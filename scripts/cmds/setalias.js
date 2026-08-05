@@ -1,10 +1,11 @@
 const { threadsData } = global.utils;
+const { box, bold, line } = require("../../func/style.js");
 
 module.exports = {
   config: {
     name: "setalias",
-    version: "0.0.1",
-    author: "ArYAN",
+    version: "1.9",
+    author: "Christus",
     countDown: 5,
     role: 1,
     prefix: true,
@@ -22,14 +23,15 @@ module.exports = {
 
   onStart: async function ({ sock, chatId, event, args, reply, isGroup, senderId }) {
     const commands = global.NixBot.commands;
-    const ownerNumbers = (global.config?.adminBot || []).map(n => n.replace(/\D/g, ""));
+    const ownerNumbers = (global.NixBot.config?.ownerNumber || []).map(n => String(n).replace(/\D/g, ""));
     const senderNum = (senderId || "").split("@")[0].split(":")[0].replace(/\D/g, "");
     const isOwner = ownerNumbers.includes(senderNum);
 
     const sub = (args[0] || "").toLowerCase();
 
     if (sub === "add") {
-      if (!args[1] || !args[2]) return reply("Usage: setalias add <alias> <command>");
+      if (!args[1] || !args[2])
+        return reply(box({ title: "Setalias", emoji: "❌", body: "Usage : {pn} add <alias> <command>" }));
 
       const alias = args[1].toLowerCase();
       const commandName = args[2].toLowerCase();
@@ -39,75 +41,82 @@ module.exports = {
       for (const [name] of commands) {
         if (name === commandName) { cmdExists = true; break; }
       }
-      if (!cmdExists) return reply(`Command "${commandName}" does not exist.`);
+      if (!cmdExists)
+        return reply(box({ title: "Setalias", emoji: "❌", body: `La commande "${bold(commandName)}" n'existe pas.` }));
 
       for (const [name, cmd] of commands) {
         const allNames = [cmd.config?.name, ...(cmd.config?.aliases || [])].map(n => (n || "").toLowerCase());
-        if (allNames.includes(alias)) return reply(`Alias "${alias}" conflicts with existing command "${name}".`);
+        if (allNames.includes(alias))
+          return reply(box({ title: "Setalias", emoji: "❌", body: `L'alias "${alias}" entre en conflit avec la commande "${name}".` }));
       }
 
       if (isGlobal) {
-        if (!isOwner) return reply("Only bot admin can add global aliases.");
+        if (!isOwner)
+          return reply(box({ title: "Setalias", emoji: "⛔", body: "Seul l'admin du bot peut ajouter un alias global." }));
 
         if (!global.NixBot.globalAliases) global.NixBot.globalAliases = {};
         if (global.NixBot.globalAliases[alias]) {
-          return reply(`Global alias "${alias}" already exists for command "${global.NixBot.globalAliases[alias]}".`);
+          return reply(box({ title: "Setalias", emoji: "❌", body: `L'alias global "${alias}" existe déjà pour "${global.NixBot.globalAliases[alias]}".` }));
         }
         global.NixBot.globalAliases[alias] = commandName;
         global.NixBot.aliases.set(alias, commandName);
-        return reply(`Added global alias "${alias}" for command "${commandName}".`);
+        return reply(box({ title: "Setalias", emoji: "✅", body: `Alias global "${alias}" ajouté pour "${commandName}".` }));
       }
 
-      if (!isGroup) return reply("Group aliases can only be set in groups. Use -g for global.");
+      if (!isGroup)
+        return reply(box({ title: "Setalias", emoji: "❌", body: "Les alias de groupe ne peuvent être ajoutés qu'en groupe. Utilisez -g pour un alias global." }));
 
       const threadData = await threadsData.get(chatId) || {};
       const groupAliases = threadData.groupAliases || {};
 
       if (groupAliases[alias]) {
-        return reply(`Alias "${alias}" already exists for command "${groupAliases[alias]}" in this group.`);
+        return reply(box({ title: "Setalias", emoji: "❌", body: `L'alias "${alias}" existe déjà pour "${groupAliases[alias]}" dans ce groupe.` }));
       }
 
       groupAliases[alias] = commandName;
       await threadsData.set(chatId, { groupAliases });
-      return reply(`Added alias "${alias}" for command "${commandName}" in this group.`);
+      return reply(box({ title: "Setalias", emoji: "✅", body: `Alias "${alias}" ajouté pour "${commandName}" dans ce groupe.` }));
     }
 
     if (sub === "remove" || sub === "rm") {
-      if (!args[1] || !args[2]) return reply("Usage: setalias remove <alias> <command>");
+      if (!args[1] || !args[2])
+        return reply(box({ title: "Setalias", emoji: "❌", body: "Usage : {pn} remove <alias> <command>" }));
 
       const alias = args[1].toLowerCase();
       const commandName = args[2].toLowerCase();
       const isGlobal = args[3] === "-g";
 
       if (isGlobal) {
-        if (!isOwner) return reply("Only bot admin can remove global aliases.");
+        if (!isOwner)
+          return reply(box({ title: "Setalias", emoji: "⛔", body: "Seul l'admin du bot peut retirer un alias global." }));
 
         if (!global.NixBot.globalAliases || !global.NixBot.globalAliases[alias]) {
-          return reply(`Global alias "${alias}" does not exist.`);
+          return reply(box({ title: "Setalias", emoji: "❌", body: `L'alias global "${alias}" n'existe pas.` }));
         }
         if (global.NixBot.globalAliases[alias] !== commandName) {
-          return reply(`Global alias "${alias}" is not for command "${commandName}".`);
+          return reply(box({ title: "Setalias", emoji: "❌", body: `L'alias global "${alias}" n'est pas lié à "${commandName}".` }));
         }
         delete global.NixBot.globalAliases[alias];
         global.NixBot.aliases.delete(alias);
-        return reply(`Removed global alias "${alias}" for command "${commandName}".`);
+        return reply(box({ title: "Setalias", emoji: "✅", body: `Alias global "${alias}" retiré de "${commandName}".` }));
       }
 
-      if (!isGroup) return reply("Group aliases can only be removed in groups. Use -g for global.");
+      if (!isGroup)
+        return reply(box({ title: "Setalias", emoji: "❌", body: "Les alias de groupe ne peuvent être retirés qu'en groupe. Utilisez -g pour un alias global." }));
 
       const threadData = await threadsData.get(chatId) || {};
       const groupAliases = threadData.groupAliases || {};
 
       if (!groupAliases[alias]) {
-        return reply(`Alias "${alias}" does not exist in this group.`);
+        return reply(box({ title: "Setalias", emoji: "❌", body: `L'alias "${alias}" n'existe pas dans ce groupe.` }));
       }
       if (groupAliases[alias] !== commandName) {
-        return reply(`Alias "${alias}" is not for command "${commandName}" in this group.`);
+        return reply(box({ title: "Setalias", emoji: "❌", body: `L'alias "${alias}" n'est pas lié à "${commandName}" dans ce groupe.` }));
       }
 
       delete groupAliases[alias];
       await threadsData.set(chatId, { groupAliases });
-      return reply(`Removed alias "${alias}" for command "${commandName}" in this group.`);
+      return reply(box({ title: "Setalias", emoji: "✅", body: `Alias "${alias}" retiré de "${commandName}" dans ce groupe.` }));
     }
 
     if (sub === "list") {
@@ -116,39 +125,38 @@ module.exports = {
       if (isGlobal) {
         const ga = global.NixBot.globalAliases || {};
         const entries = Object.entries(ga);
-        if (!entries.length) return reply("No global aliases set.");
+        if (!entries.length)
+          return reply(box({ title: "Setalias", emoji: "⚠️", body: "Aucun alias global défini." }));
 
         const grouped = {};
         for (const [alias, cmd] of entries) {
           if (!grouped[cmd]) grouped[cmd] = [];
           grouped[cmd].push(alias);
         }
-        let msg = "Global Aliases:\n";
-        for (const [cmd, aliases] of Object.entries(grouped)) {
-          msg += `\n${cmd}: ${aliases.join(", ")}`;
-        }
-        return reply(msg);
+        let list = "";
+        for (const [cmd, aliases] of Object.entries(grouped)) list += `\n${bold(cmd)} : ${aliases.join(", ")}`;
+        return reply(box({ title: "Alias Globaux", emoji: "📜", body: list.trim() }));
       }
 
-      if (!isGroup) return reply("Use -g flag to list global aliases.");
+      if (!isGroup)
+        return reply(box({ title: "Setalias", emoji: "❌", body: "Utilisez le flag -g pour voir les alias globaux." }));
 
       const threadData = await threadsData.get(chatId) || {};
       const groupAliases = threadData.groupAliases || {};
       const entries = Object.entries(groupAliases);
-      if (!entries.length) return reply("No aliases set in this group.");
+      if (!entries.length)
+        return reply(box({ title: "Setalias", emoji: "⚠️", body: "Aucun alias défini dans ce groupe." }));
 
       const grouped = {};
       for (const [alias, cmd] of entries) {
         if (!grouped[cmd]) grouped[cmd] = [];
         grouped[cmd].push(alias);
       }
-      let msg = "Group Aliases:\n";
-      for (const [cmd, aliases] of Object.entries(grouped)) {
-        msg += `\n${cmd}: ${aliases.join(", ")}`;
-      }
-      return reply(msg);
+      let list = "";
+      for (const [cmd, aliases] of Object.entries(grouped)) list += `\n${bold(cmd)} : ${aliases.join(", ")}`;
+      return reply(box({ title: "Alias du Groupe", emoji: "📜", body: list.trim() }));
     }
 
-    return reply("Usage: setalias add/remove/list\nType !help setalias for details.");
+    return reply(box({ title: "Setalias", emoji: "❌", body: `Usage : {pn} add/remove/list\n${line}\nTapez {pn}help setalias pour plus de détails.` }));
   }
 };

@@ -1,3 +1,5 @@
+const { box, bold } = require("../../func/style.js");
+
 const busyUsers = new Map();
 
 module.exports = {
@@ -28,7 +30,7 @@ module.exports = {
         }
       }
       busyUsers.delete(senderNum);
-      return reply("✅ | Do not disturb mode has been turned off");
+      return reply(box({ title: "Busy", emoji: "✅", body: "Le mode « ne pas déranger » a été désactivé." }));
     }
 
     const reason = args.join(" ") || "";
@@ -51,9 +53,9 @@ module.exports = {
     }
 
     if (reason) {
-      return reply(`✅ | Do not disturb mode has been turned on with reason: ${reason}`);
+      return reply(box({ title: "Busy", emoji: "✅", body: `Mode « ne pas déranger » activé.\n${bold("Raison")} : ${reason}` }));
     }
-    return reply("✅ | Do not disturb mode has been turned on");
+    return reply(box({ title: "Busy", emoji: "✅", body: "Mode « ne pas déranger » activé." }));
   },
 
   onChat: async function ({ sock, chatId, event, isGroup }) {
@@ -100,17 +102,13 @@ module.exports = {
       }
 
       if (busyData) {
-        if (busyData.reason) {
-          await sock.sendMessage(chatId, {
-            text: `User @${mentionedNum} is currently busy with reason: ${busyData.reason}`,
-            mentions: [mentionedJid]
-          });
-        } else {
-          await sock.sendMessage(chatId, {
-            text: `User @${mentionedNum} is currently busy`,
-            mentions: [mentionedJid]
-          });
-        }
+        const bodyMsg = busyData.reason
+          ? `${bold("Utilisateur")} @${mentionedNum} est actuellement occupé.\n${bold("Raison")} : ${busyData.reason}`
+          : `${bold("Utilisateur")} @${mentionedNum} est actuellement occupé.`;
+        await sock.sendMessage(chatId, {
+          text: box({ title: "Busy", emoji: "🔕", body: bodyMsg }),
+          mentions: [mentionedJid]
+        });
         return;
       }
     }

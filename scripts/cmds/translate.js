@@ -1,72 +1,81 @@
 const axios = require("axios");
-
-async function translate(text, targetLang) {
-  const res = await axios.get(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`, { timeout: 15000 });
-  return {
-    text: res.data[0].map(item => item[0]).join(""),
-    from: res.data[2]
-  };
-}
+const { box, bold } = require("../../func/style.js");
 
 module.exports = {
   config: {
     name: "translate",
-    aliases: ["t", "trans"],
-    version: "1.0.0",
-    author: "ArYAN",
-    prefix: true,
+    aliases: ["trans"],
+    version: "1.5",
+    author: "NTKhang",
+    countDown: 5,
     role: 0,
-    countDown: 3,
     category: "utility",
-    description: "Translate text to any language.",
+    description: { en: "Translate text to the desired language" },
     guide: {
-      en: "{pn} <text> -> <lang>\n{pn} hello -> bn\n{pn} reply to a message -> bn"
+      en: "   {pn} <text>: Translate text to the default language\n"
+        + "   {pn} <text> -> <ISO 639-1>: Translate text to the desired language\n"
+        + "   or reply to a message to translate its content\n"
+        + "   Exemple: {pn} hello -> fr"
     }
   },
 
-  onStart: async function ({ sock, chatId, event, args, reply }) {
-    const quoted = event.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-    const quotedText = quoted?.conversation || quoted?.extendedTextMessage?.text || null;
+  onStart: async function ({ event, args, reply }) {
+    const contextInfo = event.message?.extendedTextMessage?.contextInfo;
+    const quoted = contextInfo?.quotedMessage;
+    const body = event.message?.conversation || event.message?.extendedTextMessage?.text || "";
 
-    let text = "";
-    let targetLang = "bn";
+    let content;
+    let langCodeTrans;
+    const defaultLang = "fr";
 
-    const fullText = args.join(" ");
-    const sepIdx = fullText.lastIndexOf("->");
-    const sepIdx2 = fullText.lastIndexOf("=>");
+    if (quoted) {
+      content = quoted.conversation || quoted.extendedTextMessage?.text || "";
+      let lastIndexSeparator = body.lastIndexOf("->");
+      if (lastIndexSeparator == -1) lastIndexSeparator = body.lastIndexOf("=>");
 
-    const bestSep = Math.max(sepIdx, sepIdx2);
-
-    if (quotedText) {
-      text = quotedText;
-      if (args.length > 0) {
-        if (bestSep !== -1) {
-          targetLang = fullText.slice(bestSep + 2).trim();
-        } else {
-          targetLang = args[0].trim();
-        }
+      if (lastIndexSeparator != -1 && (body.length - lastIndexSeparator == 4 || body.length - lastIndexSeparator == 5)) {
+        langCodeTrans = body.slice(lastIndexSeparator + 2);
+      } else if ((args[0] || "").match(/\w{2,3}/)) {
+        langCodeTrans = args[0].match(/\w{2,3}/)[0];
+      } else {
+        langCodeTrans = defaultLang;
       }
     } else {
-      if (bestSep !== -1) {
-        text = fullText.slice(0, bestSep).trim();
-        targetLang = fullText.slice(bestSep + 2).trim();
+      content = body;
+      let lastIndexSeparator = content.lastIndexOf("->");
+      if (lastIndexSeparator == -1) lastIndexSeparator = content.lastIndexOf("=>");
+
+      if (lastIndexSeparator != -1 && (content.length - lastIndexSeparator == 4 || content.length - lastIndexSeparator == 5)) {
+        langCodeTrans = content.slice(lastIndexSeparator + 2);
+        content = content.slice(content.indexOf(args[0]), lastIndexSeparator).trim();
       } else {
-        text = fullText;
+        langCodeTrans = defaultLang;
+        content = args.join(" ");
       }
     }
 
-    if (!text) {
-      return reply("Please provide text to translate.\nExample: !t hello -> bn");
+    if (!content || !content.trim()) {
+      return reply(box({ title: "Translate", emoji: "❌", body: `Syntaxe invalide.\n${bold("Usage")} : {pn} <texte> -> <code langue>` }));
     }
 
-    if (!targetLang) targetLang = "bn";
-
     try {
-      const result = await translate(text, targetLang);
-      return reply(`${result.text}\n\n🌐 Translate from ${result.from} to ${targetLang}`);
+      const { text, lang } = await translate(content.trim(), langCodeTrans.trim());
+      return reply(box({
+        title: "Translate",
+        emoji: "🌐",
+        body: `${text}\n\n${bold("Traduit de")} ${lang} ${bold("vers")} ${langCodeTrans.trim()}`
+      }));
     } catch (err) {
-      console.error("[TRANSLATE ERROR]", err.message);
-      return reply("⚠️ Translation failed. Try again.");
+      console.error("[TRANSLATE]", err.message);
+      return reply(box({ title: "Translate", emoji: "❌", body: `Une erreur est survenue : ${err.message}` }));
     }
   }
 };
+
+async function translate(text, langCode) {
+  const res = await axios.get(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${langCode}&dt=t&q=${encodeURIComponent(text)}`);
+  return {
+    text: res.data[0].map(item => item[0]).join(""),
+    lang: res.data[2]
+  };
+}

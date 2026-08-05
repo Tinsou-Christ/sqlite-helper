@@ -1,39 +1,70 @@
 const axios = require("axios");
+const moment = require("moment-timezone");
+const config = require("../../config.json");
+const { box, bold, line } = require("../../func/style.js");
+
+function convertFtoC(F) {
+  return Math.floor((F - 32) / 1.8);
+}
+function formatHours(hours) {
+  return moment(hours).tz("Africa/Abidjan").format("HH[h]mm");
+}
 
 module.exports = {
   config: {
     name: "weather",
-    aliases: ["wthr"],
-    version: "0.0.1",
-    author: "ArYAN",
+    aliases: [],
+    version: "1.2",
+    author: "NTKhang",
     countDown: 5,
     role: 0,
-    description: "Fetches the current weather for a specified city",
-    category: "utility",
-    guide: {
-      en: "{pn} <city> - Get current weather for the specified city"
-    }
+    category: "other",
+    description: { en: "View the current weather forecast" },
+    guide: { en: "{pn} <location>" }
   },
 
-  onStart: async function ({ sock, chatId, event, args, reply }) {
-    if (args.length === 0) return reply("Please provide a city name.");
+  onStart: async function ({ args, reply }) {
+    const apikey = config.weatherApiKey;
+    const area = args.join(" ");
 
-    const city = args.join(" ");
-    try {
-      const apiKey = global.NixBot.keys.weather;
-      const weatherApi = global.NixBot.apis.weather;
-      const response = await axios.get(`${weatherApi}/weather?q=${encodeURIComponent(city)}&appid=${apiKey}&units=metric`);
-      const w = response.data;
-
-      const text = `🌤 𝗪𝗲𝗮𝘁𝗵𝗲𝗿 𝗥𝗲𝗽𝗼𝗿𝘁\n\n📍 𝗖𝗶𝘁𝘆: ${w.name}, ${w.sys?.country || ""}\n🌡 𝗧𝗲𝗺𝗽: ${w.main.temp}°C\n🌡 𝗙𝗲𝗲𝗹𝘀 𝗟𝗶𝗸𝗲: ${w.main.feels_like}°C\n☁️ 𝗦𝗸𝘆: ${w.weather[0].description}\n💧 𝗛𝘂𝗺𝗶𝗱𝗶𝘁𝘆: ${w.main.humidity}%\n💨 𝗪𝗶𝗻𝗱: ${w.wind.speed} m/s`;
-
-      await sock.sendMessage(chatId, { text }, { quoted: event });
-    } catch (e) {
-      console.error("[WEATHER] Error:", e.message);
-      if (e.response?.status === 404) {
-        return reply(`City "${city}" not found. Please check the name.`);
-      }
-      reply("Sorry, could not fetch the weather right now.");
+    if (!area) {
+      return reply(box({ title: "Météo", emoji: "❌", body: "Veuillez entrer un lieu." }));
     }
+
+    let areaKey, areaName, dataWeather;
+
+    try {
+      const response = (await axios.get(`https://api.accuweather.com/locations/v1/cities/search.json?q=${encodeURIComponent(area)}&apikey=${apikey}&language=fr-fr`)).data;
+      if (!response || response.length == 0) {
+        return reply(box({ title: "Météo", emoji: "❌", body: `Lieu introuvable : ${area}` }));
+      }
+      const data = response[0];
+      areaKey = data.Key;
+      areaName = data.LocalizedName;
+    } catch (err) {
+      return reply(box({ title: "Météo", emoji: "❌", body: `Une erreur est survenue : ${err.response?.data?.Message || err.message}` }));
+    }
+
+    try {
+      dataWeather = (await axios.get(`http://api.accuweather.com/forecasts/v1/daily/5day/${areaKey}?apikey=${apikey}&details=true&language=fr`)).data;
+    } catch (err) {
+      return reply(box({ title: "Météo", emoji: "❌", body: `Une erreur est survenue : ${err.response?.data?.Message || err.message}` }));
+    }
+
+    const today = dataWeather.DailyForecasts[0];
+
+    const body = `${bold("Lieu")} : ${areaName}\n`
+      + `${dataWeather.Headline.Text}\n`
+      + `${line}\n`
+      + `🌡 ${bold("Température")} : ${convertFtoC(today.Temperature.Minimum.Value)}°C - ${convertFtoC(today.Temperature.Maximum.Value)}°C\n`
+      + `🌡 ${bold("Ressenti")} : ${convertFtoC(today.RealFeelTemperature.Minimum.Value)}°C - ${convertFtoC(today.RealFeelTemperature.Maximum.Value)}°C\n`
+      + `🌅 ${bold("Lever du soleil")} : ${formatHours(today.Sun.Rise)}\n`
+      + `🌄 ${bold("Coucher du soleil")} : ${formatHours(today.Sun.Set)}\n`
+      + `🌃 ${bold("Lever de lune")} : ${formatHours(today.Moon.Rise)}\n`
+      + `🏙️ ${bold("Coucher de lune")} : ${formatHours(today.Moon.Set)}\n`
+      + `🌞 ${bold("Jour")} : ${today.Day.LongPhrase}\n`
+      + `🌙 ${bold("Nuit")} : ${today.Night.LongPhrase}`;
+
+    return reply(box({ title: "Météo", emoji: "⛅", body }));
   }
 };

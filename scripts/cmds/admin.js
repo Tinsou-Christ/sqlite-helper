@@ -1,5 +1,6 @@
 const { readFile, writeFile } = require("fs-extra");
 const path = require("path");
+const { box, bold } = require("../../func/style.js");
 
 const CONFIG_PATH = path.resolve(process.cwd(), "config.json");
 
@@ -41,14 +42,14 @@ module.exports = {
         }
     },
 
-    onStart: async function ({ sock, chatId, args, event, senderId, getLang, prefix, isGroup }) {
+    onStart: async function ({ sock, chatId, args, event, getLang, prefix, isGroup }) {
         let config;
         try {
             const data = await readFile(CONFIG_PATH, "utf8");
             config = JSON.parse(data);
             if (!config.roles || !config.roles["2"]) config.roles = { ...config.roles, "2": [] };
         } catch (error) {
-            return sock.sendMessage(chatId, { text: "⚠️ Error: Failed to load configuration." }, { quoted: event });
+            return sock.sendMessage(chatId, { text: box({ title: "Admin", emoji: "⚠️", body: "Erreur : Impossible de charger la configuration." }) }, { quoted: event });
         }
 
         const saveConfig = async () => {
@@ -56,7 +57,7 @@ module.exports = {
                 await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), "utf8");
                 global.NixBot.config = config;
             } catch (error) {
-                await sock.sendMessage(chatId, { text: "⚠️ Error: Failed to save changes." }, { quoted: event });
+                await sock.sendMessage(chatId, { text: box({ title: "Admin", emoji: "⚠️", body: "Erreur : Impossible d'enregistrer les changements." }) }, { quoted: event });
             }
         };
 
@@ -128,7 +129,7 @@ module.exports = {
             case "-a": {
                 const uids = extractUIDs();
                 if (!uids) {
-                    return sock.sendMessage(chatId, { text: "⚠️ | Please tag a user, reply to a message, or provide a UID" }, { quoted: event });
+                    return sock.sendMessage(chatId, { text: box({ title: "Admin", emoji: "⚠️", body: "Veuillez taguer un utilisateur, répondre à un message, ou fournir un UID." }) }, { quoted: event });
                 }
 
                 const notAdminIds = [];
@@ -152,23 +153,23 @@ module.exports = {
                     })
                 );
 
-                let msg = "";
+                let body = "";
                 const allMentions = resolved.map(u => u.jid);
                 if (notAdminIds.length > 0) {
                     const lines = resolved
                         .filter(u => notAdminIds.includes(u.uid))
                         .map(u => formatUser(u.name, u.uid));
-                    msg += `✅ | Added admin role for ${notAdminIds.length} users:\n${lines.join("\n")}`;
+                    body += `✅ ${bold("Rôle admin ajouté pour")} ${notAdminIds.length} utilisateur(s) :\n${lines.join("\n")}`;
                 }
                 if (adminIds.length > 0) {
                     const lines = resolved
                         .filter(u => adminIds.includes(u.uid))
                         .map(u => formatUser(u.name, u.uid));
-                    msg += (msg ? "\n" : "") + `⚠️ | ${adminIds.length} users already have admin role:\n${lines.join("\n")}`;
+                    body += (body ? "\n" : "") + `⚠️ ${bold("Déjà admin")} (${adminIds.length}) :\n${lines.join("\n")}`;
                 }
 
                 return sock.sendMessage(chatId, {
-                    text: msg || "⚠️ | No changes made.",
+                    text: box({ title: "Admin", emoji: "👑", body: body || "⚠️ Aucun changement effectué." }),
                     mentions: allMentions
                 }, { quoted: event });
             }
@@ -177,7 +178,7 @@ module.exports = {
             case "-r": {
                 const uids = extractUIDs();
                 if (!uids) {
-                    return sock.sendMessage(chatId, { text: "⚠️ | Please tag a user, reply to a message, or provide a UID" }, { quoted: event });
+                    return sock.sendMessage(chatId, { text: box({ title: "Admin", emoji: "⚠️", body: "Veuillez taguer un utilisateur, répondre à un message, ou fournir un UID." }) }, { quoted: event });
                 }
 
                 const removedIds = [];
@@ -202,23 +203,23 @@ module.exports = {
                     })
                 );
 
-                let msg = "";
+                let body = "";
                 const allMentions = resolved.map(u => u.jid);
                 if (removedIds.length > 0) {
                     const lines = resolved
                         .filter(u => removedIds.includes(u.uid))
                         .map(u => formatUser(u.name, u.uid));
-                    msg += `✅ | Removed admin role of ${removedIds.length} users:\n${lines.join("\n")}`;
+                    body += `✅ ${bold("Rôle admin retiré pour")} ${removedIds.length} utilisateur(s) :\n${lines.join("\n")}`;
                 }
                 if (notAdminIds.length > 0) {
                     const lines = resolved
                         .filter(u => notAdminIds.includes(u.uid))
                         .map(u => formatUser(u.name, u.uid));
-                    msg += (msg ? "\n" : "") + `⚠️ | ${notAdminIds.length} users don't have admin role:\n${lines.join("\n")}`;
+                    body += (body ? "\n" : "") + `⚠️ ${bold("N'ont pas le rôle admin")} (${notAdminIds.length}) :\n${lines.join("\n")}`;
                 }
 
                 return sock.sendMessage(chatId, {
-                    text: msg || "⚠️ | No changes made.",
+                    text: box({ title: "Admin", emoji: "👑", body: body || "⚠️ Aucun changement effectué." }),
                     mentions: allMentions
                 }, { quoted: event });
             }
@@ -226,7 +227,7 @@ module.exports = {
             case "list":
             case "-l": {
                 if (config.roles["2"].length === 0) {
-                    return sock.sendMessage(chatId, { text: "👑 | No admins found" }, { quoted: event });
+                    return sock.sendMessage(chatId, { text: box({ title: "Admin", emoji: "👑", body: "Aucun admin trouvé." }) }, { quoted: event });
                 }
 
                 const resolved = await Promise.all(
@@ -237,13 +238,13 @@ module.exports = {
                 );
 
                 const mentions = resolved.map(u => u.jid);
-                const msg = `👑 | List of admins:\n${resolved.map(u => formatUser(u.name, u.uid)).join("\n")}`;
+                const body = resolved.map(u => formatUser(u.name, u.uid)).join("\n");
 
-                return sock.sendMessage(chatId, { text: msg, mentions }, { quoted: event });
+                return sock.sendMessage(chatId, { text: box({ title: "Admin", emoji: "👑", body: `${bold("Liste des admins")} :\n${body}` }), mentions }, { quoted: event });
             }
 
             default:
-                return sock.sendMessage(chatId, { text: getLang('handlerEvents.commandSyntaxError', prefix, 'admin') }, { quoted: event });
+                return sock.sendMessage(chatId, { text: getLang ? getLang('handlerEvents.commandSyntaxError', prefix, 'admin') : box({ title: "Admin", emoji: "⚠️", body: `Syntaxe invalide. Utilisez ${prefix}admin add|remove|list.` }) }, { quoted: event });
         }
     }
 };

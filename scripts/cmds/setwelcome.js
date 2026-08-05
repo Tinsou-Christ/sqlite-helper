@@ -1,12 +1,13 @@
-const { getTime, uploadImage } = global.utils;
+const { uploadImage } = global.utils;
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
+const { box, bold, line } = require("../../func/style.js");
 
 module.exports = {
   config: {
     name: "setwelcome",
     aliases: ["setwc"],
-    version: "0.0.1",
-    author: "ArYAN",
+    version: "1.8",
+    author: "Christus",
     countDown: 5,
     role: 1,
     prefix: true,
@@ -32,38 +33,31 @@ module.exports = {
   },
 
   onStart: async function ({ sock, chatId, event, args, reply, isGroup, threadsData }) {
-    if (!isGroup) return reply("This command can only be used in groups.");
+    if (!isGroup) return reply(box({ title: "Setwelcome", emoji: "❌", body: "Cette commande ne fonctionne qu'en groupe." }));
 
     const sub = args[0]?.toLowerCase();
     const threadData = await threadsData.get(chatId) || {};
 
     if (!sub) {
-      let msg = "Welcome Message Settings:\n\n";
-      msg += "setwelcome text <message> - Set custom\n";
-      msg += "setwelcome text reset - Reset to default\n";
-      msg += "setwelcome image - Set image (reply/attach)\n";
-      msg += "setwelcome image reset - Remove image\n";
-      msg += "setwelcome on - Turn on\n";
-      msg += "setwelcome off - Turn off\n";
-      msg += "setwelcome view - View current\n\n";
-      msg += "Shortcodes:\n";
-      msg += "{userName} - Member name\n";
-      msg += "{userNameTag} - Member name (tag)\n";
-      msg += "{boxName} - Group name\n";
-      msg += "{member} - Member count\n";
-      msg += "{session} - Time of day\n";
-      msg += "{addedBy} - Added by\n";
-      msg += "{time} - Current time";
-      return reply(msg);
+      const msg =
+        `${bold("setwelcome text <message>")} - Définir le message\n` +
+        `${bold("setwelcome text reset")} - Réinitialiser\n` +
+        `${bold("setwelcome image")} - Définir l'image (répondre/joindre)\n` +
+        `${bold("setwelcome image reset")} - Retirer l'image\n` +
+        `${bold("setwelcome on")} - Activer\n` +
+        `${bold("setwelcome off")} - Désactiver\n` +
+        `${bold("setwelcome view")} - Voir la config actuelle\n${line}\n` +
+        `${bold("Shortcodes")} : {userName} {userNameTag} {boxName} {member} {session} {addedBy} {time}`;
+      return reply(box({ title: "Setwelcome", emoji: "🎉", body: msg }));
     }
 
     switch (sub) {
       case "text": {
-        if (!args[1]) return reply("Please enter welcome message content.");
+        if (!args[1]) return reply(box({ title: "Setwelcome", emoji: "❌", body: "Veuillez entrer le contenu du message." }));
 
         if (args[1].toLowerCase() === "reset") {
           await threadsData.set(chatId, { welcomeMessage: null });
-          return reply("Welcome message has been reset to default.");
+          return reply(box({ title: "Setwelcome", emoji: "✅", body: "Le message de bienvenue a été réinitialisé." }));
         }
 
         const body = (
@@ -74,10 +68,10 @@ module.exports = {
         const cmdText = body.indexOf("text");
         const welcomeMsg = body.slice(cmdText + 4).trim();
 
-        if (!welcomeMsg) return reply("Please enter welcome message content.");
+        if (!welcomeMsg) return reply(box({ title: "Setwelcome", emoji: "❌", body: "Veuillez entrer le contenu du message." }));
 
         await threadsData.set(chatId, { welcomeMessage: welcomeMsg, welcomeEnabled: true });
-        return reply(`Welcome message has been set:\n\n${welcomeMsg}`);
+        return reply(box({ title: "Setwelcome", emoji: "✅", body: `Message de bienvenue défini :\n\n${welcomeMsg}` }));
       }
 
       case "image":
@@ -86,7 +80,7 @@ module.exports = {
       case "photo": {
         if (args[1]?.toLowerCase() === "reset") {
           await threadsData.set(chatId, { welcomeImage: null });
-          return reply("Welcome image has been removed.");
+          return reply(box({ title: "Setwelcome", emoji: "✅", body: "L'image de bienvenue a été retirée." }));
         }
 
         let imageBuffer = null;
@@ -112,27 +106,27 @@ module.exports = {
         }
 
         if (!imageBuffer) {
-          return reply("Please send or reply to an image with this command.");
+          return reply(box({ title: "Setwelcome", emoji: "❌", body: "Veuillez envoyer ou répondre à une image avec cette commande." }));
         }
 
         try {
           const url = await uploadImage(imageBuffer);
           await threadsData.set(chatId, { welcomeImage: url });
-          return reply(`Welcome image has been set successfully.`);
+          return reply(box({ title: "Setwelcome", emoji: "✅", body: "L'image de bienvenue a été définie avec succès." }));
         } catch (e) {
           console.error("[SETWELCOME IMAGE ERROR]", e.message);
-          return reply("❌ Failed to upload image. Please try again.");
+          return reply(box({ title: "Setwelcome", emoji: "❌", body: "Échec de l'envoi de l'image. Réessayez." }));
         }
       }
 
       case "on": {
         await threadsData.set(chatId, { welcomeEnabled: true });
-        return reply("Turned on welcome message for this group.");
+        return reply(box({ title: "Setwelcome", emoji: "✅", body: "Message de bienvenue activé pour ce groupe." }));
       }
 
       case "off": {
         await threadsData.set(chatId, { welcomeEnabled: false });
-        return reply("Turned off welcome message for this group.");
+        return reply(box({ title: "Setwelcome", emoji: "✅", body: "Message de bienvenue désactivé pour ce groupe." }));
       }
 
       case "view": {
@@ -140,26 +134,22 @@ module.exports = {
         const custom = threadData.welcomeMessage || null;
         const hasImage = !!threadData.welcomeImage;
 
-        let msg = `Status: ${enabled ? "ON" : "OFF"}\n`;
-        msg += `Image: ${hasImage ? "Set" : "None"}\n\n`;
-        if (custom) {
-          msg += `Custom Message:\n${custom}`;
-        } else {
-          msg += "Using default welcome message.";
-        }
+        let msg = `${bold("Statut")} : ${enabled ? "ON" : "OFF"}\n`;
+        msg += `${bold("Image")} : ${hasImage ? "Définie" : "Aucune"}\n${line}\n`;
+        msg += custom ? `${bold("Message personnalisé")} :\n${custom}` : "Message de bienvenue par défaut utilisé.";
 
         if (hasImage) {
           try {
             const res = await require("axios").get(threadData.welcomeImage, { responseType: "arraybuffer" });
-            return await sock.sendMessage(chatId, { image: Buffer.from(res.data), caption: msg }, { quoted: event });
+            return await sock.sendMessage(chatId, { image: Buffer.from(res.data), caption: box({ title: "Setwelcome", emoji: "🎉", body: msg }) }, { quoted: event });
           } catch (e) {}
         }
 
-        return reply(msg);
+        return reply(box({ title: "Setwelcome", emoji: "🎉", body: msg }));
       }
 
       default: {
-        return reply("Invalid option. Use: setwelcome text <message> | image | on | off | view");
+        return reply(box({ title: "Setwelcome", emoji: "❌", body: "Option invalide. Utilisez : text <message> | image | on | off | view" }));
       }
     }
   }

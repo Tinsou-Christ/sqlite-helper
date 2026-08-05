@@ -1,3 +1,5 @@
+const { box, bold } = require("../../func/style.js");
+
 function getBanList() {
   if (!global.NixBot.controlData) global.NixBot.controlData = {};
   const ub = global.NixBot.controlData.userBan;
@@ -43,12 +45,11 @@ module.exports = {
     const sub = args[0]?.toLowerCase();
 
     if (!sub) {
-      let msg = "User Commands:\n";
-      msg += "1. user ban <@tag | uid> <reason>\n";
-      msg += "2. user unban <@tag | uid>\n";
-      msg += "3. user banlist\n";
-      msg += "4. user info <@tag | uid>";
-      return reply(msg);
+      const body = `1. ${bold("user ban")} <@tag | uid> <raison>\n`
+        + `2. ${bold("user unban")} <@tag | uid>\n`
+        + `3. ${bold("user banlist")}\n`
+        + `4. ${bold("user info")} <@tag | uid>`;
+      return reply(box({ title: "User", emoji: "👤", body: `${bold("Commandes disponibles")} :\n${body}` }));
     }
 
     const contextInfo = event.message?.extendedTextMessage?.contextInfo || {};
@@ -79,7 +80,7 @@ module.exports = {
       case "ban":
       case "-b": {
         const targetId = getTargetId();
-        if (!targetId) return reply("Uid of user to ban cannot be empty, please enter uid or tag or reply message of 1 user by user ban <uid> <reason>");
+        if (!targetId) return reply(box({ title: "User", emoji: "⚠️", body: "L'UID de l'utilisateur à bannir ne peut pas être vide. Taguez, répondez ou indiquez un UID via `user ban <uid> <raison>`." }));
 
         let reason;
         if (mentionedJids.length > 0) {
@@ -90,13 +91,13 @@ module.exports = {
           reason = args.slice(2).join(" ").trim();
         }
 
-        if (!reason) return reply("Reason to ban user cannot be empty, please enter uid or tag or reply message of 1 user by user ban <uid> <reason>");
+        if (!reason) return reply(box({ title: "User", emoji: "⚠️", body: "La raison du bannissement ne peut pas être vide. Utilisez `user ban <uid> <raison>`." }));
 
         const banList = getBanList();
         const existing = isBanned(targetId);
 
         if (existing) {
-          return reply(`User with id [${targetId} | ${existing.name || targetId}] has been banned before:\n» Reason: ${existing.reason || "No reason"}\n» Date: ${existing.date || "Unknown"}`);
+          return reply(box({ title: "User", emoji: "⚠️", body: `L'utilisateur [${targetId} | ${existing.name || targetId}] est déjà banni :\n${bold("Raison")} : ${existing.reason || "Aucune raison"}\n${bold("Date")} : ${existing.date || "Inconnue"}` }));
         }
 
         const now = new Date().toLocaleString("en-GB", { timeZone: "Asia/Dhaka" });
@@ -112,69 +113,68 @@ module.exports = {
 
         banList.push({ id: targetId, name, reason, date: now });
 
-        return reply(`User with id [${targetId} | ${name}] has been banned:\n» Reason: ${reason}\n» Date: ${now}`);
+        return reply(box({ title: "User", emoji: "✅", body: `L'utilisateur [${targetId} | ${name}] a été banni :\n${bold("Raison")} : ${reason}\n${bold("Date")} : ${now}` }));
       }
 
       case "unban":
       case "-u": {
         const targetId = getTargetId();
-        if (!targetId) return reply("Uid of user to unban cannot be empty");
+        if (!targetId) return reply(box({ title: "User", emoji: "⚠️", body: "L'UID de l'utilisateur à débannir ne peut pas être vide." }));
 
         const banList = getBanList();
         const idx = banList.findIndex(b => cleanId(b.id) === targetId);
 
         if (idx === -1) {
-          return reply(`User with id [${targetId}] is not banned`);
+          return reply(box({ title: "User", emoji: "⚠️", body: `L'utilisateur [${targetId}] n'est pas banni.` }));
         }
 
         const removed = banList.splice(idx, 1)[0];
-        return reply(`User with id [${targetId} | ${removed.name || targetId}] has been unbanned`);
+        return reply(box({ title: "User", emoji: "✅", body: `L'utilisateur [${targetId} | ${removed.name || targetId}] a été débanni.` }));
       }
 
       case "banlist": {
         const banList = getBanList();
-        if (!banList.length) return reply("No banned users.");
+        if (!banList.length) return reply(box({ title: "User", emoji: "📋", body: "Aucun utilisateur banni." }));
 
-        let msg = `📋 Banned Users (${banList.length}):\n`;
+        let body = `${bold("Utilisateurs bannis")} (${banList.length}) :\n`;
         for (const ban of banList) {
           const id = cleanId(ban.id);
-          msg += `\n╭ ID: ${id}`;
-          msg += `\n│ Name: ${ban.name || "Unknown"}`;
-          msg += `\n│ Reason: ${ban.reason || "No reason"}`;
-          msg += `\n╰ Date: ${ban.date || "Unknown"}\n`;
+          body += `\n╭ ID : ${id}`;
+          body += `\n│ Nom : ${ban.name || "Inconnu"}`;
+          body += `\n│ Raison : ${ban.reason || "Aucune raison"}`;
+          body += `\n╰ Date : ${ban.date || "Inconnue"}\n`;
         }
-        return reply(msg);
+        return reply(box({ title: "User", emoji: "📋", body }));
       }
 
       case "info": {
-        if (!isGroup) return reply("This command can only be used in groups.");
+        if (!isGroup) return reply(box({ title: "User", emoji: "❌", body: "Cette commande ne peut être utilisée que dans un groupe." }));
         const targetId = getTargetId();
-        if (!targetId) return reply("Please tag a user or provide uid.");
+        if (!targetId) return reply(box({ title: "User", emoji: "⚠️", body: "Veuillez taguer un utilisateur ou fournir un UID." }));
 
         try {
           const groupMeta = await sock.groupMetadata(chatId);
           const p = groupMeta.participants.find(m => cleanId(m.id) === targetId);
 
-          if (!p) return reply(`❌ User ${targetId} not found in this group.`);
+          if (!p) return reply(box({ title: "User", emoji: "❌", body: `Utilisateur ${targetId} introuvable dans ce groupe.` }));
 
-          const name = p.notify || p.verifiedName || "Unknown";
-          const role = p.admin === "superadmin" ? "Super Admin" : p.admin === "admin" ? "Admin" : "Member";
+          const name = p.notify || p.verifiedName || "Inconnu";
+          const role = p.admin === "superadmin" ? "Super Admin" : p.admin === "admin" ? "Admin" : "Membre";
           const banned = isBanned(targetId);
 
-          let msg = `👤 User Info\n`;
-          msg += `╭ Name: ${name}\n`;
-          msg += `│ ID: ${targetId}\n`;
-          msg += `│ Role: ${role}\n`;
-          msg += `╰ Banned: ${banned ? "Yes" : "No"}`;
-          return reply(msg);
+          const body = `╭ ${bold("Nom")} : ${name}\n`
+            + `│ ${bold("ID")} : ${targetId}\n`
+            + `│ ${bold("Rôle")} : ${role}\n`
+            + `╰ ${bold("Banni")} : ${banned ? "Oui" : "Non"}`;
+          return reply(box({ title: "User Info", emoji: "👤", body }));
         } catch (err) {
           console.error("[USER INFO ERROR]", err.message);
-          return reply("❌ Failed to get user info.");
+          return reply(box({ title: "User", emoji: "❌", body: "Échec de la récupération des infos utilisateur." }));
         }
       }
 
       default:
-        return reply("Invalid subcommand. Use !user for help.");
+        return reply(box({ title: "User", emoji: "⚠️", body: "Sous-commande invalide. Utilisez `user` pour l'aide." }));
     }
   }
 };

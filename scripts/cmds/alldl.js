@@ -1,96 +1,126 @@
-const fs = require("fs-extra");
 const axios = require("axios");
+const fs = require("fs-extra");
 const path = require("path");
+const { box, bold, line } = require("../../func/style.js");
+
+const BASE = "https://downloader-christus.onrender.com";
+const AUTO_URL = `${BASE}/api/auto`;
+const SUPPORTED_URL = `${BASE}/api/supported`;
+
+// Liste de secours si /api/supported est injoignable (ex: cold start Render)
+let supportedDomains = [
+  "facebook.com", "fb.watch",
+  "youtube.com", "youtu.be",
+  "tiktok.com",
+  "instagram.com", "instagr.am",
+  "likee.com", "likee.video",
+  "capcut.com",
+  "spotify.com",
+  "terabox.com",
+  "twitter.com", "x.com",
+  "drive.google.com",
+  "soundcloud.com",
+  "ndown.app",
+  "pinterest.com", "pin.it"
+];
+
+const refreshSupportedDomains = async () => {
+  try {
+    const res = await axios.get(SUPPORTED_URL, { timeout: 15000 });
+    const list = Array.isArray(res.data) ? res.data : res.data?.domains;
+    if (Array.isArray(list) && list.length) supportedDomains = list;
+  } catch {
+    // on garde la liste de secours en cas d'échec
+  }
+};
+
+refreshSupportedDomains();
+setInterval(refreshSupportedDomains, 30 * 60 * 1000); // rafraîchi toutes les 30 min
 
 module.exports = {
   config: {
     name: "alldl",
-    version: "1.0.1",
-    author: "ArYAN",
+    aliases: ["autodl", "dl"],
+    version: "3.0",
+    author: "Christus",
     countDown: 5,
     role: 0,
-    shortDescription: "High-speed multi-platform downloader",
-    category: "media"
+    category: "utility",
+    description: { en: "Téléchargeur vidéo/média tout-en-un" },
+    guide: {
+      en: "Envoie simplement un lien média supporté (https://) pour le télécharger automatiquement."
+    }
   },
 
-  onStart: async function ({ sock, chatId, message }) {
-    return sock.sendMessage(chatId, { text: "🚀 High-Speed AutoLink is active. Just paste any link!" }, { quoted: message });
+  onStart: async function ({ reply }) {
+    return reply(box({
+      title: "Christus Downloader",
+      emoji: "📥",
+      body: "Envoie un lien vidéo/média (https://) depuis n'importe quel site supporté (YouTube, Facebook, TikTok, Instagram, Likee, CapCut, Spotify, Terabox, Twitter, Google Drive, SoundCloud, NDown, Pinterest, etc.) pour le télécharger automatiquement."
+    }));
   },
 
-  onChat: async function ({ sock, chatId, message, event }) {
-    const body = (event.message?.conversation || event.message?.extendedTextMessage?.text || "").trim();
-    if (!body) return;
+  onChat: async function ({ sock, chatId, event, reply }) {
+    const content = (event.message?.conversation || event.message?.extendedTextMessage?.text || "").trim();
+    if (content.toLowerCase().startsWith("auto")) return;
+    if (!content.startsWith("https://")) return;
+    if (!supportedDomains.some(domain => content.includes(domain))) return;
 
-    const prefix = global.NixBot?.config?.prefix || "!";
-    if (body.startsWith(prefix)) return;
+    await sock.sendMessage(chatId, { react: { text: "⌛️", key: event.key } });
 
-    const match = body.match(/(https?:\/\/[^\s]+)/);
-    if (!match) return;
-
-    const url = match[0];
-    const cacheDir = path.join(process.cwd(), "scripts", "cmds", "temp");
-    const filePath = path.join(cacheDir, `dl_${Date.now()}.mp4`);
+    const cacheDir = path.join(__dirname, "cache");
+    let filePath;
 
     try {
-      const apiUrl = `https://aryan-autodl.vercel.app/alldl?url=${encodeURIComponent(url)}`;
-
-      const response = await axios.get(apiUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-          "Accept": "application/json",
-          "Referer": "https://www.google.com/"
-        },
-        timeout: 15000
+      const res = await axios.get(AUTO_URL, {
+        params: { url: content },
+        timeout: 30000
       });
 
-      const resData = response.data;
-      if (resData.status && resData.downloadUrl) {
-        // Send initial reaction
-        try { await sock.sendMessage(chatId, { react: { text: "⏳", key: event.key } }); } catch (e) {}
+      if (!res.data) throw new Error("Pas de réponse de l'API");
 
-        if (!fs.existsSync(cacheDir)) fs.ensureDirSync(cacheDir);
+      const { title, platform } = res.data;
 
-        const videoRes = await axios({
-          method: 'get',
-          url: resData.downloadUrl,
-          responseType: 'arraybuffer',
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-            "Referer": "https://www.google.com/",
-            "Accept": "*/*",
-            "Range": "bytes=0-"
-          },
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
-          timeout: 120000,
-          validateStatus: false
-        });
+      // On ne se fie pas au champ "type" de l'API (peu fiable, ex: Snapchat
+      // renvoie parfois "audio" alors qu'un format vidéo existe). On privilégie
+      // systématiquement la vidéo si un format vidéo est disponible, et on ne
+      // bascule sur l'audio que s'il n'y a aucun format vidéo (Spotify, SoundCloud...).
+      const mediaURL = res.data.high_quality || res.data.low_quality || res.data.audio;
+      const isAudio = !res.data.high_quality && !res.data.low_quality && !!res.data.audio;
 
-        fs.writeFileSync(filePath, Buffer.from(videoRes.data));
+      if (!mediaURL) throw new Error("Média introuvable");
 
-        let platform = "Social Media";
-        if (/facebook\.com|fb\.watch/i.test(url)) platform = "Facebook";
-        else if (/tiktok\.com/i.test(url)) platform = "TikTok";
-        else if (/instagram\.com/i.test(url)) platform = "Instagram";
-        else if (/youtube\.com|youtu\.be/i.test(url)) platform = "YouTube";
-        else if (/twitter\.com|x\.com/i.test(url)) platform = "Twitter/X";
+      const extension = isAudio ? "mp3" : "mp4";
+      const buffer = (await axios.get(mediaURL, { responseType: "arraybuffer", timeout: 60000 })).data;
 
-        await sock.sendMessage(chatId, {
-          video: fs.readFileSync(filePath),
-          caption: `• Title: ${resData.title || "No Title"}\n• Platform: ${platform}`,
-          mimetype: 'video/mp4'
-        }, { quoted: event });
+      await fs.ensureDir(cacheDir);
+      filePath = path.join(cacheDir, `auto_media_${Date.now()}.${extension}`);
+      fs.writeFileSync(filePath, Buffer.from(buffer));
 
-        // Send success reaction
-        try { await sock.sendMessage(chatId, { react: { text: "✅", key: event.key } }); } catch (e) {}
+      await sock.sendMessage(chatId, { react: { text: "✅️", key: event.key } });
 
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      const infoMsg = box({
+        title: "Christus Downloader",
+        emoji: "📥",
+        body: `${bold("Titre")}      : ${title || "Titre inconnu"}\n`
+          + `${bold("Plateforme")} : ${platform || "Inconnue"}\n`
+          + `${bold("Statut")}     : Succès`
+      });
+
+      const mediaBuffer = fs.readFileSync(filePath);
+      if (isAudio) {
+        await sock.sendMessage(chatId, { text: infoMsg }, { quoted: event });
+        await sock.sendMessage(chatId, { audio: mediaBuffer, mimetype: "audio/mpeg" }, { quoted: event });
+      } else {
+        await sock.sendMessage(chatId, { video: mediaBuffer, caption: infoMsg }, { quoted: event });
       }
+
+      fs.unlinkSync(filePath);
     } catch (err) {
-      console.error("Download Error:", err);
-      // Send error reaction
-      try { await sock.sendMessage(chatId, { react: { text: "❌", key: event.key } }); } catch (e) {}
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      console.error("❌ Christus Downloader error:", err.response?.data || err.message);
+      await sock.sendMessage(chatId, { react: { text: "❌️", key: event.key } });
+      reply(box({ title: "Christus Downloader", emoji: "📥", body: "❌ Une erreur est survenue lors du téléchargement." }));
+      if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
   }
 };

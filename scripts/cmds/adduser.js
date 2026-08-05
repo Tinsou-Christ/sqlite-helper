@@ -1,3 +1,5 @@
+const { box, bold, line } = require("../../func/style.js");
+
 module.exports = {
   config: {
     name: "adduser",
@@ -15,18 +17,15 @@ module.exports = {
 
   onStart: async function ({ sock, chatId, event, senderId, args, reply, isGroup }) {
     const lang = {
-      alreadyInGroup: "𝙰𝚕𝚛𝚎𝚊𝚍𝚢 𝚒𝚗 𝚐𝚛𝚘𝚞𝚙",
-      successAdd: "- 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲 𝐚𝐝𝐝𝐞𝐝 %1 𝐦𝐞𝐦𝐛𝐞𝐫(𝐬) 𝐭𝐨 𝐭𝐡𝐞 𝐠𝐫𝐨𝐮𝐩",
-      failedAdd: "- 𝐅𝐚𝐢𝐥𝐞𝐝 𝐭𝐨 𝐚𝐝𝐝 %1 𝐦𝐞𝐦𝐛𝐞𝐫(𝐬) 𝐭𝐨 𝐭𝐡𝐞 𝐠𝐫𝐨𝐮𝐩",
-      approve: "- 𝐀𝐝𝐝𝐞𝐝 %1 𝐦𝐞𝐦𝐛𝐞𝐫(𝐬) 𝐭𝐨 𝐭𝐡𝐞 𝐚𝐩𝐩𝐫𝐨𝐯𝐚𝐥 𝐥𝐢𝐬𝐭",
-      cannotAddUser: "𝙱𝚘𝚝 𝚒𝚜 𝚋𝚕𝚘𝚌𝚔𝚎𝚍 𝚘𝚛 𝚞𝚜𝚎𝚛 𝚋𝚕𝚘𝚌𝚔𝚎𝚍 𝚜𝚝𝚛𝚊𝚗𝚐𝚎𝚛𝚜 𝚏𝚛𝚘𝚖 𝚊𝚍𝚍𝚒𝚗𝚐 𝚝𝚘 𝚐𝚛𝚘𝚞𝚙",
-      notGroup: "❌ 𝐓𝐡𝐢𝐬 𝐜𝐨𝐦𝐦𝐚𝐧𝐝 𝐜𝐚𝐧 𝐨𝐧𝐥𝐲 𝐛𝐞 𝐮𝐬𝐞𝐝 𝐢𝐧 𝐠𝐫𝐨𝐮𝐩𝐬.",
-      noInput: "𝐏𝐥𝐞𝐚𝐬𝐞 𝐩𝐫𝐨𝐯𝐢𝐝𝐞 𝐚 𝐩𝐡𝐨𝐧𝐞 𝐧𝐮𝐦𝐛𝐞𝐫, @𝐦𝐞𝐧𝐭𝐢𝐨𝐧, 𝐨𝐫 𝐫𝐞𝐩𝐥𝐲 𝐭𝐨 𝐚 𝐦𝐞𝐬𝐬𝐚𝐠𝐞.",
-      notOnWhatsApp: "𝙽𝚘𝚝 𝚛𝚎𝚐𝚒𝚜𝚝𝚎𝚛𝚎𝚍 𝚘𝚗 𝚆𝚑𝚊𝚝𝚜𝙰𝚙𝚙"
+      alreadyInGroup: "Déjà dans le groupe",
+      cannotAddUser: "Bot bloqué ou utilisateur refusant les invitations",
+      notGroup: "Cette commande ne peut être utilisée que dans un groupe.",
+      noInput: "Veuillez fournir un numéro de téléphone, une @mention, ou répondre à un message.",
+      notOnWhatsApp: "Non enregistré sur WhatsApp"
     };
 
     if (!isGroup) {
-      return reply(lang.notGroup);
+      return reply(box({ title: "Ajouter Utilisateur", emoji: "❌", body: lang.notGroup }));
     }
 
     let uidsToAdd = [];
@@ -66,7 +65,7 @@ module.exports = {
     }
 
     if (uidsToAdd.length === 0) {
-      return reply(lang.noInput);
+      return reply(box({ title: "Ajouter Utilisateur", emoji: "❌", body: lang.noInput }));
     }
 
     let groupMeta;
@@ -128,7 +127,7 @@ module.exports = {
           const code = await sock.groupInviteCode(chatId);
           const link = `https://chat.whatsapp.com/${code}`;
           const groupName = groupMeta.subject || "the group";
-          await sock.sendMessage(resolvedJid, { text: `You have been invited to rejoin "${groupName}":\n${link}` });
+          await sock.sendMessage(resolvedJid, { text: `Vous avez été invité à rejoindre "${groupName}":\n${link}` });
           waitApproval.push(resolvedJid);
           return true;
         } catch (e) {}
@@ -171,24 +170,24 @@ module.exports = {
       }
     }
 
-    let msg2 = "";
+    let body = "";
     if (success.length > 0) {
-      msg2 += lang.successAdd.replace("%1", success.length) + "\n";
+      body += `✅ ${bold("Ajoutés avec succès")} : ${success.length} membre(s)\n`;
     }
     if (waitApproval.length > 0) {
-      msg2 += lang.approve.replace("%1", waitApproval.length) + "\n";
+      body += `⏳ ${bold("En attente d'approbation")} : ${waitApproval.length} membre(s)\n`;
     }
     if (failed.length > 0) {
-      msg2 += lang.failedAdd.replace("%1", failed.length);
+      body += `❌ ${bold("Échecs")} : ${failed.length} membre(s)`;
       for (const f of failed) {
-        msg2 += `\n    + ${f.uid}: ${f.reason}`;
+        body += `\n    • ${f.uid} : ${f.reason}`;
       }
     }
 
-    if (!msg2.trim()) {
-      msg2 = "❌ 𝐍𝐨 𝐮𝐬𝐞𝐫𝐬 𝐜𝐨𝐮𝐥𝐝 𝐛𝐞 𝐚𝐝𝐝𝐞𝐝.";
+    if (!body.trim()) {
+      body = "Aucun utilisateur n'a pu être ajouté.";
     }
 
-    return reply(msg2.trim());
+    return reply(box({ title: "Ajouter Utilisateur", emoji: "➕", body: body.trim() }));
   }
 };
