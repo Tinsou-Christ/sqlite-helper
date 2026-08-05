@@ -9,8 +9,24 @@ const ICONS = {
   torf: '⚖️', general: '🎯'
 };
 
+const REACTION_MAPPING = {
+  '👍': 'A',
+  '❤️': 'B',
+  '😂': 'C',
+  '😮': 'D'
+};
+
+const BOOLEAN_MAPPING = {
+  '👍': 'VRAI',
+  '❤️': 'FAUX'
+};
+
 function optionsText(options) {
-  return options.map((opt, i) => `${bold(String.fromCharCode(65 + i))}. ${opt}`).join("\n");
+  const reactionKeys = ['👍', '❤️', '😂', '😮'];
+  return options.map((opt, i) => {
+    const emoji = reactionKeys[i] || '📌';
+    return `${emoji} ${bold(String.fromCharCode(65 + i))}. ${opt}`;
+  }).join("\n");
 }
 
 function generateProgressBar(percentile) {
@@ -71,7 +87,6 @@ function registerReply(data) {
   }
   global.NixBot.onReply.push(data);
   console.log("[QUIZ] Reply enregistré:", data.messageID);
-  console.log("[QUIZ] Données:", JSON.stringify(data, null, 2));
 }
 
 function removeReply(messageID) {
@@ -82,18 +97,32 @@ function removeReply(messageID) {
   }
 }
 
+function getOptionFromReaction(emoji) {
+  return REACTION_MAPPING[emoji] || null;
+}
+
+function getBooleanFromReaction(emoji) {
+  return BOOLEAN_MAPPING[emoji] || null;
+}
+
 async function sendQuestion({ sock, chatId, event, senderId, title, body, imageUrl, data }) {
   const buffer = imageUrl ? await fetchImageBuffer(imageUrl) : null;
   let sentMsg;
   
+  const reactionHint = data.isTorf
+    ? `\n\n👍 VRAI   ❤️ FAUX`
+    : `\n\n👍 A   ❤️ B   😂 C   😮 D`;
+  
+  const fullBody = body + reactionHint;
+  
   if (buffer) {
     sentMsg = await sock.sendMessage(chatId, { 
       image: buffer, 
-      caption: box({ title, emoji: data.emoji || "🎯", body }) 
+      caption: box({ title, emoji: data.emoji || "🎯", body: fullBody }) 
     }, { quoted: event });
   } else {
     sentMsg = await sock.sendMessage(chatId, { 
-      text: box({ title, emoji: data.emoji || "🎯", body }) 
+      text: box({ title, emoji: data.emoji || "🎯", body: fullBody }) 
     }, { quoted: event });
   }
 
@@ -106,6 +135,14 @@ async function sendQuestion({ sock, chatId, event, senderId, title, body, imageU
   };
   
   registerReply(replyData);
+
+  const reactionEmojis = data.isTorf ? ['👍', '❤️'] : ['👍', '❤️', '😂', '😮'];
+  
+  for (const emoji of reactionEmojis) {
+    await sock.sendMessage(chatId, {
+      react: { text: emoji, key: sentMsg.key }
+    });
+  }
 
   setTimeout(async () => {
     const found = global.NixBot.onReply.find(r => r.messageID === sentMsg.key.id);
@@ -136,7 +173,8 @@ async function handleDefaultView({ reply }) {
       `• wkuiz animaux - Jouer au quiz animaux\n` +
       `• wkuiz monument - Jouer au quiz monuments\n` +
       `• wkuiz sport - Jouer au quiz sport\n\n` +
-      `🎮 Utilisez: wkuiz <catégorie> pour commencer le quiz`;
+      `🎮 Utilisez: wkuiz <catégorie> pour commencer le quiz\n` +
+      `💡 Répondez en réagissant avec 👍 ❤️ 😂 😮`;
 
     return reply(box({ title: "Quiz", emoji: "🎯", body }));
   } catch (err) {
@@ -295,7 +333,7 @@ async function handleTrueOrFalse({ sock, chatId, event, senderId, reply }) {
     const res = await axios.get(`${BASE_URL}/question?category=torf&userId=${senderId}`);
     const { _id, question, answer } = res.data;
     const correctAnswer = String(answer).toUpperCase();
-    const body = `💭 ${bold("Question")}: ${question}\n\nRépondez par ${bold("VRAI")} ou ${bold("FAUX")}\n⏰ 30 secondes pour répondre`;
+    const body = `💭 ${bold("Question")}: ${question}\n\n⏰ 30 secondes pour répondre`;
 
     await sendQuestion({
       sock, chatId, event, senderId, title: "Quiz (Vrai/Faux)", body,
@@ -352,7 +390,7 @@ async function handleImageQuiz({ sock, chatId, event, senderId, reply, category,
     if (!Array.isArray(options) || !options.length) {
       return reply(box({ title, emoji: "❌", body: `Aucune question « ${category} » disponible pour le moment.` }));
     }
-    const body = `❔ ${hint || question}\n\n${optionsText(options)}\n\n⏰ 30 secondes pour répondre (A/B/C/D)`;
+    const body = `❔ ${hint || question}\n\n${optionsText(options)}\n\n⏰ 30 secondes pour répondre (👍❤️😂😮)`;
     await sendQuestion({
       sock, chatId, event, senderId, title, body, imageUrl,
       data: { emoji, answer, options, questionId: _id, isImage: true, category, reward: 12000 }
@@ -380,7 +418,7 @@ async function handleQuiz({ sock, chatId, event, senderId, reply, args, forcedDi
     const body =
       `📚 ${bold("Catégorie")}: ${qCategory?.charAt(0).toUpperCase() + qCategory?.slice(1) || "Aléatoire"}\n` +
       `🎚️ ${bold("Difficulté")}: ${difficulty?.charAt(0).toUpperCase() + difficulty?.slice(1) || "Moyen"}\n` +
-      `❓ ${bold("Question")}: ${hint || question}\n\n${optionsText(options)}\n\n⏰ Vous avez 30 secondes pour répondre (A/B/C/D):`;
+      `❓ ${bold("Question")}: ${hint || question}\n\n${optionsText(options)}\n\n⏰ Vous avez 30 secondes pour répondre (👍❤️😂😮):`;
 
     await sendQuestion({
       sock, chatId, event, senderId, title: "Quiz Challenge", body, imageUrl,
@@ -396,13 +434,13 @@ module.exports = {
   config: {
     name: "quiz",
     aliases: ["wkuiz", "kuiz"],
-    version: "4.2",
+    version: "5.0",
     author: "Christus",
     countDown: 0,
     role: 0,
     category: "game",
     description: {
-      en: "Jeu de quiz avancé avec 6000+ questions, images, succès et classements"
+      en: "Jeu de quiz avancé avec système de réactions 👍❤️😂😮"
     },
     guide: {
       en: `{pn} <catégorie>\n\n📚 Catégories disponibles :\n🎌 anime, 🏁 flag, 📺 cartoon, 🐾 animaux, 🏛️ monument, ⚽ sport, 🔬 science, 📖 histoire, 🎬 cinema, 🌍 geographie, ➗ maths, 🎭 culture, ⚖️ torf`
@@ -478,187 +516,152 @@ module.exports = {
     }
   },
 
-  onReply: async function ({ sock, chatId, event, senderId, reply, usersData }) {
-    console.log("\n========== QUIZ ONREPLY ==========");
-
-    try {
-      const contextInfo = event?.message?.extendedTextMessage?.contextInfo;
-      const repliedId = contextInfo?.stanzaId;
-      const quotedMessage = contextInfo?.quotedMessage || {};
-
-      console.log("[QUIZ] repliedId:", repliedId);
-      console.log("[QUIZ] event.message:", JSON.stringify(event?.message, null, 2));
-
-      if (!repliedId) {
-        console.log("[QUIZ] ❌ stanzaId introuvable.");
-        return;
-      }
-
-      // Recherche du handler comme Pinterest
-      let data = global.NixBot.onReply.find(r => 
-        r.commandName === "quiz" && 
-        r.messageID === repliedId
-      );
-
-      if (!data) {
-        data = global.NixBot.onReply.find(r => r.messageID === repliedId);
-      }
-
-      if (!data) {
-        console.log("[QUIZ] ❌ Aucun handler correspondant.");
-        console.log("[QUIZ] onReply disponibles:", global.NixBot.onReply);
-        return;
-      }
-
-      console.log("[QUIZ] ✅ Handler trouvé:", data);
-
-      if (data.author !== senderId) {
-        console.log("[QUIZ] ❌ Auteur non autorisé:", senderId);
-        return;
-      }
-
-      // Récupération du texte comme Pinterest
-      const text = (
-        event?.message?.conversation ||
-        event?.message?.extendedTextMessage?.text ||
-        event?.message?.imageMessage?.caption ||
-        event?.message?.videoMessage?.caption ||
-        event?.message?.documentMessage?.caption ||
-        ""
-      ).trim().toUpperCase();
-
-      console.log("[QUIZ] Texte reçu:", text);
-
-      if (!text) {
-        console.log("[QUIZ] ❌ Message vide.");
-        return;
-      }
-
-      // Vérification du temps
-      const timeSpent = (Date.now() - data.startTime) / 1000;
-      if (timeSpent > 30) {
-        removeReply(data.messageID);
-        return reply(box({ title: "Temps écoulé", emoji: "⏰", body: `Trop tard ! La bonne réponse était : ${data.answer}` }));
-      }
-
-      let userAnswer;
-      let isCorrect = false;
-
-      // Traitement des réponses comme Pinterest
-      if (data.isTorf) {
-        if (!["VRAI", "FAUX", "V", "F"].includes(text)) {
-          return reply(box({ title: "Quiz", emoji: "❌", body: "Veuillez répondre par VRAI ou FAUX uniquement !" }));
-        }
-        userAnswer = (text === "VRAI" || text === "V") ? "A" : "B";
-        isCorrect = userAnswer === data.answer;
-      } else {
-        if (!["A", "B", "C", "D"].includes(text)) {
-          return reply(box({ title: "Quiz", emoji: "❌", body: "Veuillez répondre avec A, B, C ou D uniquement !" }));
-        }
-        
-        if ((data.isFlag || data.isAnime || data.isImage || data.isDailyChallenge) && data.options) {
-          const optionIndex = text.charCodeAt(0) - 65;
-          userAnswer = optionIndex >= 0 && optionIndex < data.options.length ? data.options[optionIndex] : text;
-        } else {
-          userAnswer = text;
-        }
-        isCorrect = String(userAnswer).toLowerCase() === String(data.answer).toLowerCase();
-      }
-
-      console.log("[QUIZ] Réponse utilisateur:", userAnswer);
-      console.log("[QUIZ] Bonne réponse:", data.answer);
-      console.log("[QUIZ] Correct:", isCorrect);
-
-      const userName = event.pushName || "Joueur Anonyme";
-      let user = {};
-      
-      try {
-        const answerData = { 
-          userId: senderId, 
-          questionId: data.questionId, 
-          answer: userAnswer, 
-          timeSpent, 
-          userName 
-        };
-        const res = await axios.post(`${BASE_URL}/answer`, answerData);
-        user = res.data?.user || {};
-        console.log("[QUIZ] Réponse enregistrée sur le serveur");
-      } catch (e) {
-        console.error("Erreur envoi réponse:", e.message);
-      }
-
-      const userData = await usersData.get(senderId);
-
-      let responseMsg;
-      if (isCorrect) {
-        let baseMoneyReward = 10000;
-        if (data.difficulty === 'hard') baseMoneyReward = 15000;
-        if (data.difficulty === 'easy') baseMoneyReward = 7500;
-        if (data.isFlag) baseMoneyReward = 12000;
-        if (data.isAnime) baseMoneyReward = 15000;
-        if (data.isImage) baseMoneyReward = 12000;
-        if (data.isDailyChallenge) baseMoneyReward = 20000;
-        if (data.isTorf) baseMoneyReward = 10000;
-
-        const streakBonus = (user.currentStreak || 0) * 1000;
-        const totalMoneyReward = baseMoneyReward + streakBonus;
-        const xpGained = user.xpGained || 15;
-
-        await usersData.set(senderId, {
-          money: (userData.money || 0) + totalMoneyReward,
-          exp: (userData.exp || 0) + xpGained
-        });
-
-        responseMsg = box({
-          title: "🎉 Bonne réponse !", 
-          emoji: "🎉",
-          body: `💵 ${bold("Argent")}: +${totalMoneyReward.toLocaleString()}\n` +
-                `✨ ${bold("XP")}: +${xpGained}\n` +
-                `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
-                `🔥 ${bold("Série")}: ${user.currentStreak || 0}\n` +
-                `⚡ ${bold("Temps de réponse")}: ${timeSpent.toFixed(1)}s\n` +
-                `👤 ${userName}`
-        });
-      } else {
-        responseMsg = box({
-          title: "❌ Mauvaise réponse", 
-          emoji: "❌",
-          body: `🎯 ${bold("Bonne réponse")}: ${data.answer}\n` +
-                `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
-                `💔 Série réinitialisée\n👤 ${userName}`
-        });
-      }
-
-      await reply(responseMsg);
-
-      // Succès débloqués
-      if (user.achievements && user.achievements.length > 0) {
-        const achievementMsg = user.achievements.map(ach => `🏆 ${ach}`).join('\n');
-        const freshData = await usersData.get(senderId);
-        await usersData.set(senderId, { 
-          money: (freshData.money || 0) + 50000, 
-          exp: (freshData.exp || 0) + 100 
-        });
-        await reply(box({ 
-          title: "🏆 Succès débloqué !", 
-          emoji: "🏆", 
-          body: `${achievementMsg}\n💰 +50 000 pièces bonus !\n✨ +100 XP bonus !` 
-        }));
-      }
-
-      removeReply(data.messageID);
-      console.log("[QUIZ] ✅ onReply terminé.");
-
-    } catch (err) {
-      console.error("[QUIZ ONREPLY ERROR]", err);
-      const errorMsg = err.response?.data?.error || err.message || "Erreur inconnue";
-      try {
-        return reply(box({ title: "Erreur", emoji: "❌", body: `Erreur lors du traitement de votre réponse: ${errorMsg}` }));
-      } catch (e) {
-        console.error("[QUIZ] Erreur lors de l'envoi du message d'erreur:", e);
-      }
+  onEvent: async function ({ sock, chatId, event, senderId, reply, usersData }) {
+    if (event.type !== "reaction") return;
+    
+    const reactionKey = event.reaction?.key;
+    if (!reactionKey) return;
+    
+    const messageId = reactionKey.id;
+    const reactionEmoji = event.reaction?.text || "";
+    
+    console.log("[QUIZ] Réaction reçue:", reactionEmoji, "sur le message:", messageId);
+    
+    const data = global.NixBot.onReply.find(r => 
+      r.commandName === "quiz" && 
+      r.messageID === messageId
+    );
+    
+    if (!data) {
+      console.log("[QUIZ] ❌ Aucune question en cours pour ce message.");
+      return;
     }
-
-    console.log("========================================\n");
+    
+    if (data.author !== senderId) {
+      console.log("[QUIZ] ❌ Auteur non autorisé:", senderId);
+      await sock.sendMessage(chatId, {
+        react: { text: '❌', key: { id: messageId } }
+      });
+      return;
+    }
+    
+    let option;
+    if (data.isTorf) {
+      option = getBooleanFromReaction(reactionEmoji);
+    } else {
+      option = getOptionFromReaction(reactionEmoji);
+    }
+    
+    if (!option) {
+      console.log("[QUIZ] ❌ Emoji non reconnu:", reactionEmoji);
+      return;
+    }
+    
+    console.log("[QUIZ] ✅ Option choisie:", option);
+    
+    const timeSpent = (Date.now() - data.startTime) / 1000;
+    if (timeSpent > 30) {
+      removeReply(data.messageID);
+      return reply(box({ title: "Temps écoulé", emoji: "⏰", body: `Trop tard ! La bonne réponse était : ${data.answer}` }));
+    }
+    
+    let userAnswer;
+    let isCorrect = false;
+    
+    if (data.isTorf) {
+      userAnswer = option === 'VRAI' ? 'A' : 'B';
+      isCorrect = userAnswer === data.answer;
+    } else {
+      if (data.options) {
+        const optionIndex = option.charCodeAt(0) - 65;
+        userAnswer = optionIndex >= 0 && optionIndex < data.options.length ? data.options[optionIndex] : option;
+      } else {
+        userAnswer = option;
+      }
+      isCorrect = String(userAnswer).toLowerCase() === String(data.answer).toLowerCase();
+    }
+    
+    console.log("[QUIZ] Réponse utilisateur:", userAnswer);
+    console.log("[QUIZ] Bonne réponse:", data.answer);
+    console.log("[QUIZ] Correct:", isCorrect);
+    
+    const userName = event.pushName || "Joueur Anonyme";
+    let user = {};
+    
+    try {
+      const answerData = { 
+        userId: senderId, 
+        questionId: data.questionId, 
+        answer: userAnswer, 
+        timeSpent, 
+        userName 
+      };
+      const res = await axios.post(`${BASE_URL}/answer`, answerData);
+      user = res.data?.user || {};
+      console.log("[QUIZ] Réponse enregistrée sur le serveur");
+    } catch (e) {
+      console.error("Erreur envoi réponse:", e.message);
+    }
+    
+    const userData = await usersData.get(senderId);
+    
+    let responseMsg;
+    if (isCorrect) {
+      let baseMoneyReward = 10000;
+      if (data.difficulty === 'hard') baseMoneyReward = 15000;
+      if (data.difficulty === 'easy') baseMoneyReward = 7500;
+      if (data.isFlag) baseMoneyReward = 12000;
+      if (data.isAnime) baseMoneyReward = 15000;
+      if (data.isImage) baseMoneyReward = 12000;
+      if (data.isDailyChallenge) baseMoneyReward = 20000;
+      if (data.isTorf) baseMoneyReward = 10000;
+      
+      const streakBonus = (user.currentStreak || 0) * 1000;
+      const totalMoneyReward = baseMoneyReward + streakBonus;
+      const xpGained = user.xpGained || 15;
+      
+      await usersData.set(senderId, {
+        money: (userData.money || 0) + totalMoneyReward,
+        exp: (userData.exp || 0) + xpGained
+      });
+      
+      responseMsg = box({
+        title: "🎉 Bonne réponse !", 
+        emoji: "🎉",
+        body: `💵 ${bold("Argent")}: +${totalMoneyReward.toLocaleString()}\n` +
+              `✨ ${bold("XP")}: +${xpGained}\n` +
+              `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
+              `🔥 ${bold("Série")}: ${user.currentStreak || 0}\n` +
+              `⚡ ${bold("Temps de réponse")}: ${timeSpent.toFixed(1)}s\n` +
+              `👤 ${userName}`
+      });
+    } else {
+      responseMsg = box({
+        title: "❌ Mauvaise réponse", 
+        emoji: "❌",
+        body: `🎯 ${bold("Bonne réponse")}: ${data.answer}\n` +
+              `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
+              `💔 Série réinitialisée\n👤 ${userName}`
+      });
+    }
+    
+    await reply(responseMsg);
+    
+    if (user.achievements && user.achievements.length > 0) {
+      const achievementMsg = user.achievements.map(ach => `🏆 ${ach}`).join('\n');
+      const freshData = await usersData.get(senderId);
+      await usersData.set(senderId, { 
+        money: (freshData.money || 0) + 50000, 
+        exp: (freshData.exp || 0) + 100 
+      });
+      await reply(box({ 
+        title: "🏆 Succès débloqué !", 
+        emoji: "🏆", 
+        body: `${achievementMsg}\n💰 +50 000 pièces bonus !\n✨ +100 XP bonus !` 
+      }));
+    }
+    
+    removeReply(data.messageID);
+    console.log("[QUIZ] ✅ onEvent terminé.");
   }
 };
