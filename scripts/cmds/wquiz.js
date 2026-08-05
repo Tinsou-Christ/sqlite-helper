@@ -190,15 +190,24 @@ module.exports = {
     const reactor = event.key.participant || event.key.remoteJid;
     if (reactor !== quizData.author) return;
 
-    // Emojis valides pour répondre
     const reaction = event.message?.reactionMessage?.text || "";
     const validReactions = ['👍', '❤️', '😂', '😮'];
     if (!validReactions.includes(reaction)) return;
 
-    const userName = event.pushName || (await usersData.get(quizData.author))?.name || "Joueur";
+    let userName = "Joueur";
+    try {
+      if (usersData && typeof usersData.get === 'function') {
+        const userInfo = await usersData.get(quizData.author);
+        userName = userInfo?.name || event.pushName || "Joueur";
+      } else {
+        userName = event.pushName || "Joueur";
+      }
+    } catch (e) {
+      userName = event.pushName || "Joueur";
+    }
+
     const timeSpent = (Date.now() - quizData.startTime) / 1000;
 
-    // Vérifier si le temps est écoulé
     if (timeSpent > 30) {
       global.NixBot.onReactionQuiz.delete(messageId);
       return sock.sendMessage(quizData.chatId, {
@@ -206,7 +215,6 @@ module.exports = {
       });
     }
 
-    // Convertir la réaction en lettre de réponse
     let userAnswer = '';
     const reactionMap = {
       '👍': 'A',
@@ -218,7 +226,6 @@ module.exports = {
 
     if (!userAnswer) return;
 
-    // Pour Vrai/Faux, on adapte
     let actualAnswer = userAnswer;
     if (quizData.isTorf) {
       if (reaction === '👍') actualAnswer = 'Vrai';
@@ -246,11 +253,17 @@ module.exports = {
       const { result, user } = res.data;
       let responseMsg;
 
-      let userData = await usersData.get(quizData.author);
-      let currentMoney = Number(userData.money) || 0;
+      let currentMoney = 0;
+      try {
+        if (usersData && typeof usersData.get === 'function') {
+          const userData = await usersData.get(quizData.author);
+          currentMoney = Number(userData?.money) || 0;
+        }
+      } catch (e) {
+        currentMoney = 0;
+      }
 
       if (result === "correct") {
-        // Calcul des récompenses
         let baseMoneyReward = 10000;
         if (quizData.difficulty === 'hard') baseMoneyReward = 15000;
         if (quizData.difficulty === 'easy') baseMoneyReward = 7500;
@@ -261,10 +274,18 @@ module.exports = {
         const streakBonus = (user.currentStreak || 0) * 1000;
         const totalMoneyReward = baseMoneyReward + streakBonus;
 
-        await usersData.set(quizData.author, {
-          ...userData,
-          money: currentMoney + totalMoneyReward
-        });
+        try {
+          if (usersData && typeof usersData.set === 'function') {
+            const userData = await usersData.get(quizData.author) || {};
+            await usersData.set(quizData.author, {
+              ...userData,
+              money: (Number(userData.money) || 0) + totalMoneyReward
+            });
+            currentMoney = (Number(userData.money) || 0) + totalMoneyReward;
+          }
+        } catch (e) {
+          console.error("Erreur mise à jour argent:", e);
+        }
 
         const difficultyBonus = quizData.difficulty === 'hard' ? ' 🔥' : quizData.difficulty === 'easy' ? ' ⭐' : '';
         const streakBonus2 = (user.currentStreak || 0) >= 5 ? ` 🚀 ${user.currentStreak}x série !` : '';
@@ -278,7 +299,7 @@ module.exports = {
           `🔥 𝗦𝗲́𝗿𝗶𝗲: ${user.currentStreak || 0}\n` +
           `⚡ 𝗧𝗲𝗺𝗽𝘀: ${timeSpent.toFixed(1)}s\n` +
           `🎯 𝗫𝗣 𝗧𝗼𝘁𝗮𝗹: ${user.xp || 0}/1000\n` +
-          `💰 𝗦𝗼𝗹𝗱𝗲: ${(currentMoney + totalMoneyReward).toLocaleString()}\n` +
+          `💰 𝗦𝗼𝗹𝗱𝗲: ${currentMoney.toLocaleString()}\n` +
           `👤 ${userName}` + difficultyBonus + streakBonus2;
       } else {
         responseMsg = 
@@ -292,13 +313,18 @@ module.exports = {
 
       await sock.sendMessage(quizData.chatId, { text: responseMsg });
 
-      // Gérer les succès
       if (user.achievements && user.achievements.length > 0) {
-        userData = await usersData.get(quizData.author);
-        await usersData.set(quizData.author, {
-          ...userData,
-          money: (userData.money || 0) + 50000
-        });
+        try {
+          if (usersData && typeof usersData.get === 'function' && typeof usersData.set === 'function') {
+            const userData = await usersData.get(quizData.author) || {};
+            await usersData.set(quizData.author, {
+              ...userData,
+              money: (Number(userData.money) || 0) + 50000
+            });
+          }
+        } catch (e) {
+          console.error("Erreur mise à jour succès:", e);
+        }
         
         const achievementMsg = user.achievements.map(ach => `🏆 ${ach}`).join('\n');
         await sock.sendMessage(quizData.chatId, {
@@ -306,7 +332,6 @@ module.exports = {
         });
       }
 
-      // Supprimer les données du quiz
       global.NixBot.onReactionQuiz.delete(messageId);
 
     } catch (err) {
@@ -317,8 +342,6 @@ module.exports = {
     }
   }
 };
-
-// ============ FONCTIONS D'AFFICHAGE ============
 
 async function handleDefaultView(chatId, sock, reply, event) {
   try {
@@ -475,8 +498,6 @@ async function handleCategoryLeaderboard(chatId, event, sock, args, reply) {
     reply("⚠️ Impossible de récupérer le classement.");
   }
 }
-
-// ============ FONCTIONS DE QUIZ AVEC RÉACTIONS ============
 
 async function handleDailyChallenge(chatId, event, sock, userId, userName, reply) {
   try {
