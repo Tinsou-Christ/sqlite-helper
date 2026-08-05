@@ -1,51 +1,61 @@
-const axios = require("axios");
-const { box, bold, line } = require("../../func/style.js");
+const axios = require('axios');
 
-const BASE_URL = "https://quiz-api-zd8a.onrender.com/api";
-const ICONS = {
-  anime: '🎌', flag: '🏁', cartoon: '📺', animaux: '🐾',
-  monument: '🏛️', sport: '⚽', science: '🔬', histoire: '📖',
-  cinema: '🎬', geographie: '🌍', maths: '➗', culture: '🎭',
-  torf: '⚖️', general: '🎯'
-};
+const BASE_URL = 'https://qizapi.onrender.com/api';
 
-const REACTION_MAPPING = {
-  '👍': 'A',
-  '❤️': 'B',
-  '😂': 'C',
-  '😮': 'D'
-};
+async function translate(text, targetLang = 'fr') {
+  if (!text || text.includes('http')) return text;
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await axios.get(url);
+    return res.data[0].map(segment => segment[0]).join("");
+  } catch (e) {
+    return text;
+  }
+}
 
-const BOOLEAN_MAPPING = {
-  '👍': 'VRAI',
-  '❤️': 'FAUX'
-};
+async function translateQuestion(questionData, targetLang = 'fr') {
+  try {
+    if (questionData.category === 'flag' || questionData.question?.includes('http')) {
+      return questionData;
+    }
 
-function optionsText(options) {
-  const reactionKeys = ['👍', '❤️', '😂', '😮'];
-  return options.map((opt, i) => {
-    const emoji = reactionKeys[i] || '📌';
-    return `${emoji} ${bold(String.fromCharCode(65 + i))}. ${opt}`;
-  }).join("\n");
+    const [translatedQuestion, translatedCategory, translatedDifficulty] = await Promise.all([
+      translate(questionData.question, targetLang),
+      translate(questionData.category || '', targetLang),
+      translate(questionData.difficulty || '', targetLang)
+    ]);
+
+    return {
+      ...questionData,
+      question: translatedQuestion || questionData.question,
+      options: questionData.options,
+      category: translatedCategory || questionData.category,
+      difficulty: translatedDifficulty || questionData.difficulty,
+      originalAnswer: questionData.answer
+    };
+  } catch (error) {
+    console.error("Translation error:", error);
+    return questionData;
+  }
 }
 
 function generateProgressBar(percentile) {
-  const filled = Math.round((percentile || 0) / 10);
+  const filled = Math.round(percentile / 10);
   const empty = 10 - filled;
-  return '█'.repeat(Math.max(0, filled)) + '░'.repeat(Math.max(0, empty));
+  return '█'.repeat(filled) + '░'.repeat(empty);
 }
 
 function getUserTitle(correct) {
   if (correct >= 50000) return '🌟 Quiz Omniscient';
-  if (correct >= 25000) return '👑 Quiz Divinité';
+  if (correct >= 25000) return '👑 Quiz Divin';
   if (correct >= 15000) return '⚡ Quiz Titan';
   if (correct >= 10000) return '🏆 Quiz Légende';
   if (correct >= 7500) return '🎓 Grand Maître';
   if (correct >= 5000) return '👨‍🎓 Maître du Quiz';
-  if (correct >= 2500) return '🔥 Expert Quiz';
-  if (correct >= 1500) return '📚 Savant Quiz';
+  if (correct >= 2500) return '🔥 Expert en Quiz';
+  if (correct >= 1500) return '📚 Savant du Quiz';
   if (correct >= 1000) return '🎯 Apprenti Quiz';
-  if (correct >= 750) return '🌟 Chercheur de Connaissances';
+  if (correct >= 750) return '🌟 Chercheur de Savoir';
   if (correct >= 500) return '📖 Apprenant Rapide';
   if (correct >= 250) return '🚀 Étoile Montante';
   if (correct >= 100) return '💡 Débutant';
@@ -59,142 +69,290 @@ function getUserTitle(correct) {
 async function getAvailableCategories() {
   try {
     const res = await axios.get(`${BASE_URL}/categories`);
-    return (res.data || []).map(c => String(c).toLowerCase());
-  } catch (e) {
-    console.error("Erreur catégories:", e.message);
+    return res.data.map(cat => cat.toLowerCase());
+  } catch (error) {
+    console.error("Error fetching categories:", error);
     return [];
   }
 }
 
-async function fetchImageBuffer(url) {
-  if (!url || !/^https?:\/\//i.test(url)) return null;
-  try {
-    const res = await axios.get(url, { responseType: "arraybuffer", timeout: 20000, maxRedirects: 5 });
-    return Buffer.from(res.data);
-  } catch (e) {
-    console.error("Échec téléchargement image:", url, e.message);
-    return null;
-  }
-}
-
-function registerReply(data) {
-  if (!global.NixBot.onReply) {
-    global.NixBot.onReply = [];
-  }
-  const existingIndex = global.NixBot.onReply.findIndex(r => r.messageID === data.messageID);
-  if (existingIndex !== -1) {
-    global.NixBot.onReply.splice(existingIndex, 1);
-  }
-  global.NixBot.onReply.push(data);
-  console.log("[QUIZ] Reply enregistré:", data.messageID);
-}
-
-function removeReply(messageID) {
-  const idx = global.NixBot.onReply.findIndex(r => r.messageID === messageID);
-  if (idx !== -1) {
-    global.NixBot.onReply.splice(idx, 1);
-    console.log("[QUIZ] Reply supprimé:", messageID);
-  }
-}
-
-function getOptionFromReaction(emoji) {
-  return REACTION_MAPPING[emoji] || null;
-}
-
-function getBooleanFromReaction(emoji) {
-  return BOOLEAN_MAPPING[emoji] || null;
-}
-
-async function sendQuestion({ sock, chatId, event, senderId, title, body, imageUrl, data }) {
-  const buffer = imageUrl ? await fetchImageBuffer(imageUrl) : null;
-  let sentMsg;
-  
-  const reactionHint = data.isTorf
-    ? `\n\n👍 VRAI   ❤️ FAUX`
-    : `\n\n👍 A   ❤️ B   😂 C   😮 D`;
-  
-  const fullBody = body + reactionHint;
-  
-  if (buffer) {
-    sentMsg = await sock.sendMessage(chatId, { 
-      image: buffer, 
-      caption: box({ title, emoji: data.emoji || "🎯", body: fullBody }) 
-    }, { quoted: event });
-  } else {
-    sentMsg = await sock.sendMessage(chatId, { 
-      text: box({ title, emoji: data.emoji || "🎯", body: fullBody }) 
-    }, { quoted: event });
-  }
-
-  const replyData = {
-    commandName: "quiz",
-    messageID: sentMsg.key.id,
-    author: senderId,
-    startTime: Date.now(),
-    ...data
-  };
-  
-  registerReply(replyData);
-
-  const reactionEmojis = data.isTorf ? ['👍', '❤️'] : ['👍', '❤️', '😂', '😮'];
-  
-  for (const emoji of reactionEmojis) {
-    await sock.sendMessage(chatId, {
-      react: { text: emoji, key: sentMsg.key }
-    });
-  }
-
-  setTimeout(async () => {
-    const found = global.NixBot.onReply.find(r => r.messageID === sentMsg.key.id);
-    if (found) {
-      const timeoutMsg = box({ 
-        title: "⏰ Temps écoulé", 
-        emoji: "⏰", 
-        body: `La bonne réponse était : ${bold(data.answer)}` 
-      });
-      await sock.sendMessage(chatId, { text: timeoutMsg }, { quoted: event }).catch(() => {});
-      removeReply(sentMsg.key.id);
+module.exports = {
+  config: {
+    name: "quiz",
+    aliases: ["q", "qz", "kuiz"],
+    version: "5.0.0",
+    author: "Christus",
+    countDown: 5,
+    role: 0,
+    description: {
+      en: "Advanced quiz game with reaction-based answering system"
+    },
+    category: "game",
+    nixPrefix: true,
+    guide: {
+      en: "   {pn} <category> - Start a quiz in a category\n"
+        + "   {pn} rank - View your profile\n"
+        + "   {pn} lb - Leaderboard\n"
+        + "   {pn} daily - Daily challenge\n"
+        + "   {pn} torf - True/False quiz\n"
+        + "   {pn} flag - Flag quiz\n"
+        + "   {pn} anime - Anime quiz\n"
+        + "   {pn} hard/medium/easy - Difficulty based quiz"
     }
-  }, 30000);
-}
+  },
 
-async function handleDefaultView({ reply }) {
+  onStart: async function ({ sock, chatId, args, event, senderId, reply, prefix, commandName, usersData }) {
+    const command = args[0]?.toLowerCase();
+    const userId = senderId;
+    const userName = event.pushName || "Joueur";
+
+    try {
+      await axios.post(`${BASE_URL}/user/update`, {
+        userId: userId,
+        name: userName
+      }).catch(() => {});
+
+      if (!args[0] || command === "help") {
+        return handleDefaultView(chatId, sock, reply, event);
+      }
+
+      switch (command) {
+        case "rank":
+        case "profile":
+        case "rang":
+        case "profil":
+          return await handleRank(chatId, event, sock, userId, userName, reply, usersData);
+          
+        case "leaderboard":
+        case "lb":
+        case "classement":
+          return await handleLeaderboard(chatId, event, sock, args.slice(1), reply);
+          
+        case "category":
+        case "categorie":
+          if (args.length > 1) {
+            return await handleCategoryLeaderboard(chatId, event, sock, args.slice(1), reply);
+          }
+          return await handleCategories(chatId, sock, reply, event);
+          
+        case "daily":
+        case "quotidien":
+          return await handleDailyChallenge(chatId, event, sock, userId, userName, reply);
+          
+        case "torf":
+        case "vrai/faux":
+          return await handleTrueOrFalse(chatId, event, sock, userId, userName, reply);
+          
+        case "flag":
+        case "drapeau":
+          return await handleFlagQuiz(chatId, event, sock, userId, userName, reply);
+          
+        case "anime":
+          return await handleAnimeQuiz(chatId, event, sock, userId, userName, reply);
+          
+        case "hard":
+        case "difficile":
+          return await handleQuiz(chatId, event, sock, userId, userName, [], reply, "hard");
+          
+        case "medium":
+        case "moyen":
+          return await handleQuiz(chatId, event, sock, userId, userName, [], reply, "medium");
+          
+        case "easy":
+        case "facile":
+          return await handleQuiz(chatId, event, sock, userId, userName, [], reply, "easy");
+          
+        case "random":
+        case "aleatoire":
+          return await handleQuiz(chatId, event, sock, userId, userName, [], reply);
+          
+        default:
+          const categories = await getAvailableCategories();
+          if (categories.includes(command)) {
+            return await handleQuiz(chatId, event, sock, userId, userName, [command], reply);
+          } else {
+            return handleDefaultView(chatId, sock, reply, event);
+          }
+      }
+    } catch (err) {
+      console.error("Quiz start error:", err);
+      return reply("⚠️ Erreur, réessayez plus tard.");
+    }
+  },
+
+  onReaction: async function ({ sock, event, usersData }) {
+    const messageId = event.message?.reactionMessage?.key?.id || event.key?.id;
+    if (!messageId) return;
+
+    const quizData = global.NixBot.onReactionQuiz?.get(messageId);
+    if (!quizData) return;
+
+    const reactor = event.key.participant || event.key.remoteJid;
+    if (reactor !== quizData.author) return;
+
+    // Emojis valides pour répondre
+    const reaction = event.message?.reactionMessage?.text || "";
+    const validReactions = ['👍', '❤️', '😂', '😮'];
+    if (!validReactions.includes(reaction)) return;
+
+    const userName = event.pushName || (await usersData.get(quizData.author))?.name || "Joueur";
+    const timeSpent = (Date.now() - quizData.startTime) / 1000;
+
+    // Vérifier si le temps est écoulé
+    if (timeSpent > 30) {
+      global.NixBot.onReactionQuiz.delete(messageId);
+      return sock.sendMessage(quizData.chatId, {
+        text: `⏰ Temps écoulé ! La bonne réponse était: ${quizData.correctAnswer}`
+      });
+    }
+
+    // Convertir la réaction en lettre de réponse
+    let userAnswer = '';
+    const reactionMap = {
+      '👍': 'A',
+      '❤️': 'B',
+      '😂': 'C',
+      '😮': 'D'
+    };
+    userAnswer = reactionMap[reaction] || '';
+
+    if (!userAnswer) return;
+
+    // Pour Vrai/Faux, on adapte
+    let actualAnswer = userAnswer;
+    if (quizData.isTorf) {
+      if (reaction === '👍') actualAnswer = 'Vrai';
+      else if (reaction === '❤️') actualAnswer = 'Faux';
+    } else if (quizData.isFlag && quizData.options) {
+      const optionIndex = userAnswer.charCodeAt(0) - 65;
+      if (optionIndex >= 0 && optionIndex < quizData.options.length) {
+        actualAnswer = quizData.options[optionIndex];
+      }
+    }
+
+    try {
+      const answerData = {
+        userId: quizData.author,
+        questionId: quizData.questionId,
+        answer: actualAnswer,
+        timeSpent,
+        userName
+      };
+
+      const res = await axios.post(`${BASE_URL}/answer`, answerData);
+      
+      if (!res.data) throw new Error('Aucune donnée reçue');
+
+      const { result, user } = res.data;
+      let responseMsg;
+
+      let userData = await usersData.get(quizData.author);
+      let currentMoney = Number(userData.money) || 0;
+
+      if (result === "correct") {
+        // Calcul des récompenses
+        let baseMoneyReward = 10000;
+        if (quizData.difficulty === 'hard') baseMoneyReward = 15000;
+        if (quizData.difficulty === 'easy') baseMoneyReward = 7500;
+        if (quizData.isFlag) baseMoneyReward = 12000;
+        if (quizData.isAnime) baseMoneyReward = 15000;
+        if (quizData.isDaily) baseMoneyReward = 20000;
+
+        const streakBonus = (user.currentStreak || 0) * 1000;
+        const totalMoneyReward = baseMoneyReward + streakBonus;
+
+        await usersData.set(quizData.author, {
+          ...userData,
+          money: currentMoney + totalMoneyReward
+        });
+
+        const difficultyBonus = quizData.difficulty === 'hard' ? ' 🔥' : quizData.difficulty === 'easy' ? ' ⭐' : '';
+        const streakBonus2 = (user.currentStreak || 0) >= 5 ? ` 🚀 ${user.currentStreak}x série !` : '';
+        
+        responseMsg = 
+          `🎉 𝗕𝗼𝗻𝗻𝗲 𝗿𝗲́𝗽𝗼𝗻𝘀𝗲 !\n` +
+          `━━━━━━━━━━\n\n` +
+          `💰 𝗔𝗿𝗴𝗲𝗻𝘁: +${totalMoneyReward.toLocaleString()}\n` +
+          `✨ 𝗫𝗣: +${user.xpGained || 15}\n` +
+          `📊 𝗦𝗰𝗼𝗿𝗲: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
+          `🔥 𝗦𝗲́𝗿𝗶𝗲: ${user.currentStreak || 0}\n` +
+          `⚡ 𝗧𝗲𝗺𝗽𝘀: ${timeSpent.toFixed(1)}s\n` +
+          `🎯 𝗫𝗣 𝗧𝗼𝘁𝗮𝗹: ${user.xp || 0}/1000\n` +
+          `💰 𝗦𝗼𝗹𝗱𝗲: ${(currentMoney + totalMoneyReward).toLocaleString()}\n` +
+          `👤 ${userName}` + difficultyBonus + streakBonus2;
+      } else {
+        responseMsg = 
+          `❌ 𝗠𝗮𝘂𝘃𝗮𝗶𝘀𝗲 𝗿𝗲́𝗽𝗼𝗻𝘀𝗲\n` +
+          `━━━━━━━━━━\n\n` +
+          `🎯 𝗕𝗼𝗻𝗻𝗲 𝗿𝗲́𝗽𝗼𝗻𝘀𝗲: ${quizData.correctAnswer}\n` +
+          `📊 𝗦𝗰𝗼𝗿𝗲: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
+          `💔 𝗦𝗲́𝗿𝗶𝗲 𝗿𝗲́𝗶𝗻𝗶𝘁𝗶𝗮𝗹𝗶𝘀𝗲́𝗲\n` +
+          `👤 ${userName}` + (quizData.isFlag ? ' 🏁' : '') + (quizData.isAnime ? ' 🎌' : '');
+      }
+
+      await sock.sendMessage(quizData.chatId, { text: responseMsg });
+
+      // Gérer les succès
+      if (user.achievements && user.achievements.length > 0) {
+        userData = await usersData.get(quizData.author);
+        await usersData.set(quizData.author, {
+          ...userData,
+          money: (userData.money || 0) + 50000
+        });
+        
+        const achievementMsg = user.achievements.map(ach => `🏆 ${ach}`).join('\n');
+        await sock.sendMessage(quizData.chatId, {
+          text: `🏆 𝗦𝘂𝗰𝗰𝗲̀𝘀 𝗱𝗲́𝗯𝗹𝗼𝗾𝘂𝗲́ !\n${achievementMsg}\n💰 +50 000 pièces bonus !`
+        });
+      }
+
+      // Supprimer les données du quiz
+      global.NixBot.onReactionQuiz.delete(messageId);
+
+    } catch (err) {
+      console.error("Answer error:", err);
+      await sock.sendMessage(quizData.chatId, {
+        text: `⚠️ Erreur lors du traitement: ${err.message}`
+      });
+    }
+  }
+};
+
+// ============ FONCTIONS D'AFFICHAGE ============
+
+async function handleDefaultView(chatId, sock, reply, event) {
   try {
     const res = await axios.get(`${BASE_URL}/categories`);
-    const categories = res.data || [];
-    const catText = categories.map(c => `${ICONS[c] || '📍'} ${c.charAt(0).toUpperCase() + c.slice(1)}`).join("\n");
+    const categories = res.data;
 
-    const body =
-      `${bold("Catégories")} (${categories.length})\n\n${catText}\n\n${line}\n\n` +
-      `${bold("Utilisation")}\n` +
-      `• wkuiz rank - Voir votre classement\n` +
-      `• wkuiz leaderboard - Voir le classement global\n` +
-      `• wkuiz torf - Jouer au quiz Vrai/Faux\n` +
-      `• wkuiz flag - Jouer au quiz des drapeaux\n` +
-      `• wkuiz anime - Jouer au quiz anime\n` +
-      `• wkuiz cartoon - Jouer au quiz dessins animés\n` +
-      `• wkuiz animaux - Jouer au quiz animaux\n` +
-      `• wkuiz monument - Jouer au quiz monuments\n` +
-      `• wkuiz sport - Jouer au quiz sport\n\n` +
-      `🎮 Utilisez: wkuiz <catégorie> pour commencer le quiz\n` +
-      `💡 Répondez en réagissant avec 👍 ❤️ 😂 😮`;
+    const catText = categories.map(c => `📍 ${c.charAt(0).toUpperCase() + c.slice(1)}`).join("\n");
 
-    return reply(box({ title: "Quiz", emoji: "🎯", body }));
+    const msg = 
+      `🎯 𝗤𝘂𝗶𝘇\n━━━━━━━━\n\n` +
+      `📚 𝗖𝗮𝘁𝗲́𝗴𝗼𝗿𝗶𝗲𝘀\n\n${catText}\n\n` +
+      `━━━━━━━━━\n\n` +
+      `🏆 𝗨𝘁𝗶𝗹𝗶𝘀𝗮𝘁𝗶𝗼𝗻\n` +
+      `• /quiz rang - Voir votre rang\n` +
+      `• /quiz classement - Voir le classement\n` +
+      `• /quiz vrai/faux - Jouer au quiz Vrai/Faux\n` +
+      `• /quiz drapeau - Jouer au quiz de drapeaux\n` +
+      `• /quiz anime - Jouer au quiz de personnages anime\n\n` +
+      `🎮 Utilisez: /quiz <catégorie> pour commencer`;
+
+    await sock.sendMessage(chatId, { text: msg }, { quoted: event });
   } catch (err) {
-    console.error("Erreur vue par défaut:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de récupérer les catégories. Essayez 'wkuiz help'." }));
+    console.error("Default view error:", err);
+    reply("⚠️ Impossible de récupérer les catégories.");
   }
 }
 
-async function handleRank({ event, senderId, reply, usersData }) {
+async function handleRank(chatId, event, sock, userId, userName, reply, usersData) {
   try {
-    const userName = event.pushName || "Joueur Anonyme";
-    await axios.post(`${BASE_URL}/user/update`, { userId: senderId, name: userName }).catch(() => {});
-    const res = await axios.get(`${BASE_URL}/user/${senderId}`);
+    const res = await axios.get(`${BASE_URL}/user/${userId}`);
     const user = res.data;
 
     if (!user || user.total === 0) {
-      return reply(box({ title: "Profil Quiz", emoji: "❌", body: `Vous n'avez pas encore joué de quiz ! Utilisez "wkuiz random" pour commencer.\n👤 Bienvenue, ${userName} !` }));
+      return reply(`❌ Vous n'avez pas encore joué au quiz ! Utilisez '/quiz aléatoire' pour commencer.\n👤 Bienvenue, ${userName}!`);
     }
 
     const position = user.position ?? "N/A";
@@ -202,475 +360,393 @@ async function handleRank({ event, senderId, reply, usersData }) {
     const progressBar = generateProgressBar(user.percentile ?? 0);
     const title = getUserTitle(user.correct || 0);
 
-    const streakInfo = user.currentStreak > 0
-      ? `🔥 ${bold("Série en cours")}: ${user.currentStreak}${user.currentStreak >= 5 ? ' 🚀' : ''}`
-      : `🔥 ${bold("Série en cours")}: 0`;
-
-    const bestStreakInfo = user.bestStreak > 0
-      ? `🏅 ${bold("Meilleure série")}: ${user.bestStreak}${user.bestStreak >= 10 ? ' 👑' : user.bestStreak >= 5 ? ' ⭐' : ''}`
-      : `🏅 ${bold("Meilleure série")}: 0`;
-
-    const userData = await usersData.get(senderId);
-    const userMoney = userData.money || 0;
+    const userData = await usersData.get(userId);
+    const userMoney = Number(userData.money) || 0;
 
     const currentXP = user.xp ?? 0;
-    const xpTo1000 = Math.max(0, 1000 - currentXP);
     const xpProgress = Math.min(100, (currentXP / 1000) * 100);
     const xpProgressBar = generateProgressBar(xpProgress);
 
-    const body =
-      `👤 ${userName}\n🎖️ ${title}\n🏆 ${bold("Classement global")}: #${position}/${totalUser}\n📈 ${bold("Percentile")}: ${progressBar} ${user.percentile ?? 0}%\n\n` +
-      `${bold("Statistiques")}\n` +
-      `✅ Bonnes réponses: ${user.correct ?? 0}\n` +
-      `❌ Mauvaises réponses: ${user.wrong ?? 0}\n` +
-      `📝 Total: ${user.total ?? 0}\n` +
-      `🎯 Précision: ${user.accuracy ?? 0}%\n` +
-      `⚡ Temps moyen de réponse: ${(user.avgResponseTime ?? 0).toFixed(1)}s\n\n` +
-      `${bold("Richesse & XP")}\n` +
-      `💵 Argent: ${userMoney.toLocaleString()}\n` +
-      `✨ XP: ${currentXP}/1000\n` +
-      `🎯 XP restant pour 1000: ${xpTo1000}\n` +
+    const msg =
+      `🎮 𝗣𝗿𝗼𝗳𝗶𝗹 𝗤𝘂𝗶𝘇\n━━━━━━━━━\n\n` +
+      `👤 ${userName}\n` +
+      `🎖️ ${title}\n` +
+      `🏆 𝗥𝗮𝗻𝗴 𝗴𝗹𝗼𝗯𝗮𝗹: #${position}/${totalUser}\n` +
+      `📈 𝗣𝗲𝗿𝗰𝗲𝗻𝘁𝗶𝗹𝗲: ${progressBar} ${user.percentile ?? 0}%\n\n` +
+      `📊 𝗦𝘁𝗮𝘁𝗶𝘀𝘁𝗶𝗾𝘂𝗲𝘀\n` +
+      `✅ 𝗖𝗼𝗿𝗿𝗲𝗰𝘁: ${user.correct ?? 0}\n` +
+      `❌ 𝗜𝗻𝗰𝗼𝗿𝗿𝗲𝗰𝘁: ${user.wrong ?? 0}\n` +
+      `📝 𝗧𝗼𝘁𝗮𝗹: ${user.total ?? 0}\n` +
+      `🎯 𝗣𝗿𝗲́𝗰𝗶𝘀𝗶𝗼𝗻: ${user.accuracy ?? 0}%\n` +
+      `⚡ 𝗧𝗲𝗺𝗽𝘀 𝗠𝗼𝘆𝗲𝗻: ${(user.avgResponseTime ?? 0).toFixed(1)}s\n\n` +
+      `💰 𝗥𝗶𝗰𝗵𝗲𝘀𝘀𝗲 & 𝗫𝗣\n` +
+      `💵 𝗔𝗿𝗴𝗲𝗻𝘁: ${userMoney.toLocaleString()}\n` +
+      `✨ 𝗫𝗣: ${currentXP}/1000\n` +
       `${xpProgressBar} ${xpProgress.toFixed(1)}%\n\n` +
-      `${bold("Info série")}\n${streakInfo}\n${bestStreakInfo}\n\n` +
-      `🎯 Prochain objectif: ${user.nextMilestone || "Continuez à jouer !"}`;
+      `🔥 𝗦𝗲́𝗿𝗶𝗲\n` +
+      `🔥 𝗔𝗰𝘁𝘂𝗲𝗹𝗹𝗲: ${user.currentStreak || 0}${user.currentStreak >= 5 ? ' 🚀' : ''}\n` +
+      `🏅 𝗠𝗲𝗶𝗹𝗹𝗲𝘂𝗿𝗲: ${user.bestStreak || 0}${user.bestStreak >= 10 ? ' 👑' : user.bestStreak >= 5 ? ' ⭐' : ''}\n\n` +
+      `🎯 𝗣𝗿𝗼𝗰𝗵𝗮𝗶𝗻 𝗼𝗯𝗷𝗲𝗰𝘁𝗶𝗳: ${user.nextMilestone || "Continuez à jouer !"}`;
 
-    return reply(box({ title: "Profil Quiz", emoji: "🎮", body }));
+    await sock.sendMessage(chatId, { text: msg }, { quoted: event });
   } catch (err) {
-    console.error("Erreur classement:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de récupérer le classement. Réessayez plus tard." }));
+    console.error("Rank error:", err);
+    reply("⚠️ Impossible de récupérer votre rang.");
   }
 }
 
-async function handleLeaderboard({ reply, args }) {
+async function handleLeaderboard(chatId, event, sock, args, reply) {
   try {
     const page = parseInt(args?.[0]) || 1;
     const res = await axios.get(`${BASE_URL}/leaderboards?page=${page}&limit=8`);
-    const { rankings, stats, pagination } = res.data;
+    const { rankings, pagination } = res.data;
 
     if (!rankings || rankings.length === 0) {
-      return reply(box({ title: "Classement global", emoji: "🏆", body: "Aucun joueur dans le classement. Commencez à jouer pour être le premier !" }));
+      return reply("🏆 Aucun joueur trouvé.");
     }
 
     const players = rankings.map((u, i) => {
-      const userName = u.name || 'Joueur Anonyme';
       const position = (pagination.currentPage - 1) * 8 + i + 1;
-      const crown = position === 1 ? "👑" : position === 2 ? "🥈" : position === 3 ? "🥉" : position <= 10 ? "🏅" : "🎯";
+      const crown = position === 1 ? "👑" : position === 2 ? "🥈" : position === 3 ? "🥉" : "🏅";
       const title = getUserTitle(u.correct || 0);
       const accuracy = u.accuracy ?? (u.total > 0 ? Math.round((u.correct / u.total) * 100) : 0);
-      return `${crown} #${position} ${userName}\n🎖️ ${title}\n📊 ${u.correct || 0} ✅ / ${u.wrong || 0} ❌ (Précision: ${accuracy}%)\n🔥 Série: ${u.currentStreak || 0} | 🏅 Meilleure: ${u.bestStreak || 0}`;
+      
+      return `${crown} #${position} ${u.name || 'Joueur'}\n` +
+             `🎖️ ${title}\n` +
+             `📊 ${u.correct || 0} ✅ / ${u.wrong || 0} ❌ (${accuracy}%)\n` +
+             `🔥 Série: ${u.currentStreak || 0}`;
     });
 
-    const body =
-      `${players.join('\n\n')}\n\n${line}\n\n` +
-      `📖 Page ${pagination?.currentPage || 1}/${pagination?.totalPages || 1} | 👥 Total: ${stats?.totalUsers || 0}\n` +
-      `🔄 Utilisez: wkuiz leaderboard <page>`;
+    const msg = `🏆 𝗖𝗹𝗮𝘀𝘀𝗲𝗺𝗲𝗻𝘁\n━━━━━━━━━\n\n${players.join('\n\n')}\n\n📖 Page ${pagination.currentPage}/${pagination.totalPages}`;
 
-    return reply(box({ title: "Classement global", emoji: "🏆", body }));
+    await sock.sendMessage(chatId, { text: msg }, { quoted: event });
   } catch (err) {
-    console.error("Erreur classement:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de récupérer le classement." }));
+    console.error("Leaderboard error:", err);
+    reply("⚠️ Impossible de récupérer le classement.");
   }
 }
 
-async function handleCategories({ reply }) {
+async function handleCategories(chatId, sock, reply, event) {
   try {
     const res = await axios.get(`${BASE_URL}/categories`);
-    const categories = res.data || [];
-    const catText = categories.map(c => `${ICONS[c] || '📍'} ${c.charAt(0).toUpperCase() + c.slice(1)}`).join("\n");
-    const body = `${catText}\n\n🎯 Utilisez: wkuiz <catégorie>\n🎲 Aléatoire: wkuiz random\n🏆 Quotidien: wkuiz daily`;
-    return reply(box({ title: `Catégories du Quiz (${categories.length})`, emoji: "📚", body }));
+    const categories = res.data;
+
+    const catText = categories.map(c => `📍 ${c.charAt(0).toUpperCase() + c.slice(1)}`).join("\n");
+
+    const msg = `📚 𝗖𝗮𝘁𝗲́𝗴𝗼𝗿𝗶𝗲𝘀\n━━━━━━━━\n\n${catText}\n\n` +
+                `🎯 Utilisez: /quiz <catégorie>\n` +
+                `🎲 Aléatoire: /quiz aléatoire\n` +
+                `🏆 Quotidien: /quiz quotidien`;
+
+    await sock.sendMessage(chatId, { text: msg }, { quoted: event });
   } catch (err) {
-    console.error("Erreur catégories:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de récupérer les catégories." }));
+    console.error("Categories error:", err);
+    reply("⚠️ Impossible de récupérer les catégories.");
   }
 }
 
-async function handleCategoryLeaderboard({ reply, args }) {
+async function handleCategoryLeaderboard(chatId, event, sock, args, reply) {
   try {
     const category = args[0]?.toLowerCase();
-    if (!category) return reply(box({ title: "Classement catégorie", emoji: "📚", body: "Veuillez spécifier une catégorie." }));
+    if (!category) {
+      return reply("📚 Veuillez spécifier une catégorie.");
+    }
 
     const page = parseInt(args[1]) || 1;
     const res = await axios.get(`${BASE_URL}/leaderboard/category/${category}?page=${page}&limit=10`);
     const { users, pagination } = res.data;
 
     if (!users || users.length === 0) {
-      return reply(box({ title: "Classement catégorie", emoji: "🏆", body: `Aucun joueur trouvé pour la catégorie: ${category}.` }));
+      return reply(`🏆 Aucun joueur pour : ${category}.`);
     }
 
-    const topPlayers = users.map((u, i) => {
-      const userName = u.name || 'Joueur Anonyme';
+    const players = users.map((u, i) => {
       const position = (pagination.currentPage - 1) * 10 + i + 1;
       const crown = position === 1 ? "👑" : position === 2 ? "🥈" : position === 3 ? "🥉" : "🏅";
       const title = getUserTitle(u.correct || 0);
-      return `${crown} #${position} ${userName}\n🎖️ ${title}\n📊 ${u.correct || 0}/${u.total || 0} (${u.accuracy || 0}%)`;
-    }).join('\n\n');
-
-    const body = `${topPlayers}\n\n📖 Page ${pagination.currentPage}/${pagination.totalPages}\n👥 Total joueurs: ${pagination.totalUsers}`;
-    return reply(box({ title: `Classement: ${category.charAt(0).toUpperCase() + category.slice(1)}`, emoji: "🏆", body }));
-  } catch (err) {
-    console.error("Erreur classement catégorie:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de récupérer le classement de la catégorie." }));
-  }
-}
-
-async function handleDailyChallenge({ sock, chatId, event, senderId, reply }) {
-  try {
-    const res = await axios.get(`${BASE_URL}/challenge/daily?userId=${senderId}`);
-    const { question, challengeDate, reward, streak } = res.data;
-
-    const body = `📅 ${challengeDate}\n🎯 Récompense bonus: +${reward} XP\n🔥 Série quotidienne: ${streak}\n\n❓ ${question.question}\n\n${optionsText(question.options)}\n\n⏰ 30 secondes pour répondre !`;
-
-    await sendQuestion({
-      sock, chatId, event, senderId, title: "🌟 Défi quotidien", body,
-      data: { emoji: "🌟", answer: question.answer, questionId: question._id, isDailyChallenge: true, bonusReward: reward, options: question.options }
+      return `${crown} #${position} ${u.name || 'Joueur'}\n🎖️ ${title}\n📊 ${u.correct || 0}/${u.total || 0} (${u.accuracy || 0}%)`;
     });
+
+    const msg = `🏆 𝗖𝗹𝗮𝘀𝘀𝗲𝗺𝗲𝗻𝘁 : ${category}\n━━━━━━━━━\n\n${players.join('\n\n')}\n\n📖 Page ${pagination.currentPage}/${pagination.totalPages}`;
+
+    await sock.sendMessage(chatId, { text: msg }, { quoted: event });
   } catch (err) {
-    console.error("Erreur défi quotidien:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de créer le défi quotidien." }));
+    console.error("Category leaderboard error:", err);
+    reply("⚠️ Impossible de récupérer le classement.");
   }
 }
 
-async function handleTrueOrFalse({ sock, chatId, event, senderId, reply }) {
-  try {
-    const res = await axios.get(`${BASE_URL}/question?category=torf&userId=${senderId}`);
-    const { _id, question, answer } = res.data;
-    const correctAnswer = String(answer).toUpperCase();
-    const body = `💭 ${bold("Question")}: ${question}\n\n⏰ 30 secondes pour répondre`;
+// ============ FONCTIONS DE QUIZ AVEC RÉACTIONS ============
 
-    await sendQuestion({
-      sock, chatId, event, senderId, title: "⚖️ Quiz Vrai/Faux", body,
-      data: { emoji: "⚖️", answer: correctAnswer, questionId: _id, isTorf: true }
+async function handleDailyChallenge(chatId, event, sock, userId, userName, reply) {
+  try {
+    const res = await axios.get(`${BASE_URL}/challenge/daily?userId=${userId}`);
+    let { question, challengeDate, reward, streak } = res.data;
+
+    const translatedData = await translateQuestion({
+      question: question.question,
+      options: question.options,
+      answer: question.answer,
+      _id: question._id
     });
+
+    const optText = translatedData.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join("\n");
+
+    const sent = await sock.sendMessage(chatId, {
+      text: `🌟 𝗗𝗲́𝗳𝗶 𝗤𝘂𝗼𝘁𝗶𝗱𝗶𝗲𝗻\n━━━━━━━━━\n\n` +
+            `📅 ${challengeDate}\n` +
+            `🎯 Récompense: +${reward} XP\n` +
+            `🔥 Série: ${streak}\n\n` +
+            `❓ ${translatedData.question}\n\n${optText}\n\n` +
+            `⏰ 30 secondes\n` +
+            `👍 = A  |  ❤️ = B  |  😂 = C  |  😮 = D\n` +
+            `Réagissez avec le bon emoji !`
+    }, { quoted: event });
+
+    if (!global.NixBot.onReactionQuiz) global.NixBot.onReactionQuiz = new Map();
+    global.NixBot.onReactionQuiz.set(sent.key.id, {
+      author: userId,
+      chatId: chatId,
+      correctAnswer: translatedData.answer,
+      options: translatedData.options,
+      questionId: translatedData._id,
+      startTime: Date.now(),
+      isDaily: true,
+      difficulty: "daily"
+    });
+
+    setTimeout(() => {
+      const data = global.NixBot.onReactionQuiz?.get(sent.key.id);
+      if (data) {
+        global.NixBot.onReactionQuiz.delete(sent.key.id);
+        sock.sendMessage(chatId, {
+          text: `⏰ Temps écoulé ! La bonne réponse était: ${data.correctAnswer}`
+        }).catch(() => {});
+      }
+    }, 30000);
+
   } catch (err) {
-    console.error("Erreur Vrai/Faux:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de créer la question Vrai/Faux." }));
+    console.error("Daily challenge error:", err);
+    reply("⚠️ Impossible de créer le défi quotidien.");
   }
 }
 
-async function handleFlagQuiz({ sock, chatId, event, senderId, reply }) {
+async function handleTrueOrFalse(chatId, event, sock, userId, userName, reply) {
   try {
-    const res = await axios.get(`${BASE_URL}/question?category=flag&userId=${senderId}`, { timeout: 25000 });
-    const { _id, options, answer, imageUrl } = res.data;
-    if (!Array.isArray(options) || !options.length) {
-      return reply(box({ title: "Quiz drapeaux", emoji: "❌", body: "Aucune question sur les drapeaux disponible pour le moment." }));
+    const res = await axios.get(`${BASE_URL}/question?category=torf&userId=${userId}`);
+    let { _id, question, answer } = res.data;
+
+    const translatedData = await translateQuestion({
+      question: question,
+      options: ["True", "False"],
+      answer: answer,
+      _id: _id
+    });
+
+    const sent = await sock.sendMessage(chatId, {
+      text: `⚙ 𝗤𝘂𝗶𝘇 (Vrai/Faux)\n━━━━━━━━━━\n\n💭 ${translatedData.question}\n\n` +
+            `👍 = Vrai\n❤️ = Faux\n\n` +
+            `⏰ 30 secondes - Réagissez avec 👍 ou ❤️`
+    }, { quoted: event });
+
+    if (!global.NixBot.onReactionQuiz) global.NixBot.onReactionQuiz = new Map();
+    global.NixBot.onReactionQuiz.set(sent.key.id, {
+      author: userId,
+      chatId: chatId,
+      correctAnswer: translatedData.answer === "A" ? "Vrai" : "Faux",
+      options: translatedData.options,
+      questionId: translatedData._id,
+      startTime: Date.now(),
+      isTorf: true
+    });
+
+    setTimeout(() => {
+      const data = global.NixBot.onReactionQuiz?.get(sent.key.id);
+      if (data) {
+        global.NixBot.onReactionQuiz.delete(sent.key.id);
+        sock.sendMessage(chatId, {
+          text: `⏰ Temps écoulé ! La bonne réponse était: ${data.correctAnswer}`
+        }).catch(() => {});
+      }
+    }, 30000);
+
+  } catch (err) {
+    console.error("True/False error:", err);
+    reply("⚠️ Impossible de créer une question Vrai/Faux.");
+  }
+}
+
+async function handleFlagQuiz(chatId, event, sock, userId, userName, reply) {
+  try {
+    const res = await axios.get(`${BASE_URL}/question?category=flag&userId=${userId}`);
+    let { _id, question, options, answer } = res.data;
+
+    const flagEmbed = {
+      caption: `🏁 𝗤𝘂𝗶𝘇 𝗱𝗲 𝗗𝗿𝗮𝗽𝗲𝗮𝘂𝘅\n━━━━━━━━\n\n🌍 Devinez le pays :\n\n` +
+              options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join("\n") +
+              `\n\n⏰ 30 secondes\n` +
+              `👍 = A  |  ❤️ = B  |  😂 = C  |  😮 = D\n` +
+              `Réagissez avec le bon emoji !`
+    };
+
+    let sent;
+    if (question && question.startsWith('http')) {
+      sent = await sock.sendMessage(chatId, {
+        image: { url: question },
+        caption: flagEmbed.caption
+      }, { quoted: event });
+    } else {
+      sent = await sock.sendMessage(chatId, {
+        text: flagEmbed.caption
+      }, { quoted: event });
     }
-    const body = `🌍 Devinez le pays de ce drapeau :\n\n${optionsText(options)}\n\n⏰ 30 secondes pour répondre.`;
-    await sendQuestion({
-      sock, chatId, event, senderId, title: "🏁 Quiz drapeaux", body, imageUrl,
-      data: { emoji: "🏁", answer, options, questionId: _id, isFlag: true, reward: 12000 }
+
+    if (!global.NixBot.onReactionQuiz) global.NixBot.onReactionQuiz = new Map();
+    global.NixBot.onReactionQuiz.set(sent.key.id, {
+      author: userId,
+      chatId: chatId,
+      correctAnswer: answer,
+      options: options,
+      questionId: _id,
+      startTime: Date.now(),
+      isFlag: true
     });
+
+    setTimeout(() => {
+      const data = global.NixBot.onReactionQuiz?.get(sent.key.id);
+      if (data) {
+        global.NixBot.onReactionQuiz.delete(sent.key.id);
+        sock.sendMessage(chatId, {
+          text: `⏰ Temps écoulé ! La bonne réponse était: ${data.correctAnswer}`
+        }).catch(() => {});
+      }
+    }, 30000);
+
   } catch (err) {
-    console.error("Erreur quiz drapeaux:", err.message);
-    const detail = err?.response?.data?.error || err.message || "erreur inconnue";
-    return reply(box({ title: "Erreur", emoji: "❌", body: `Impossible de créer le quiz drapeaux.\n📄 Raison: ${detail}` }));
+    console.error("Flag quiz error:", err);
+    reply("⚠️ Impossible de créer un quiz de drapeau.");
   }
 }
 
-async function handleAnimeQuiz({ sock, chatId, event, senderId, reply }) {
+async function handleAnimeQuiz(chatId, event, sock, userId, userName, reply) {
   try {
-    const res = await axios.get(`${BASE_URL}/question?category=anime&userId=${senderId}`, { timeout: 25000 });
-    const { _id, question, options, answer, imageUrl, hint } = res.data;
-    if (!Array.isArray(options) || !options.length) {
-      return reply(box({ title: "Quiz Anime", emoji: "❌", body: "Aucune question anime disponible pour le moment." }));
+    const res = await axios.get(`${BASE_URL}/question?category=anime&userId=${userId}`);
+    let { _id, question, options, answer, imageUrl } = res.data;
+
+    const translatedData = await translateQuestion({
+      question: question,
+      options: options,
+      answer: answer,
+      _id: _id
+    });
+
+    const animeEmbed = {
+      caption: `🎌 𝗤𝘂𝗶𝘇 𝗔𝗻𝗶𝗺𝗲\n━━━━━━━━\n\n❔ ${translatedData.question}\n\n` +
+              translatedData.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join("\n") +
+              `\n\n⏰ 30 secondes\n` +
+              `👍 = A  |  ❤️ = B  |  😂 = C  |  😮 = D\n` +
+              `Réagissez avec le bon emoji !`
+    };
+
+    let sent;
+    if (imageUrl && imageUrl.startsWith('http')) {
+      sent = await sock.sendMessage(chatId, {
+        image: { url: imageUrl },
+        caption: animeEmbed.caption
+      }, { quoted: event });
+    } else {
+      sent = await sock.sendMessage(chatId, {
+        text: animeEmbed.caption
+      }, { quoted: event });
     }
-    const body = `❔ ${bold("Indice")}: ${hint || question}\n\n${optionsText(options)}\n\n⏰ 30 secondes\n🎯 Défi de reconnaissance de personnage !`;
-    await sendQuestion({
-      sock, chatId, event, senderId, title: "🎌 Quiz Anime", body, imageUrl,
-      data: { emoji: "🎌", answer, options, questionId: _id, isAnime: true, reward: 15000 }
+
+    if (!global.NixBot.onReactionQuiz) global.NixBot.onReactionQuiz = new Map();
+    global.NixBot.onReactionQuiz.set(sent.key.id, {
+      author: userId,
+      chatId: chatId,
+      correctAnswer: translatedData.answer,
+      options: translatedData.options,
+      questionId: translatedData._id,
+      startTime: Date.now(),
+      isAnime: true
     });
+
+    setTimeout(() => {
+      const data = global.NixBot.onReactionQuiz?.get(sent.key.id);
+      if (data) {
+        global.NixBot.onReactionQuiz.delete(sent.key.id);
+        sock.sendMessage(chatId, {
+          text: `⏰ Temps écoulé ! La bonne réponse était: ${data.correctAnswer}`
+        }).catch(() => {});
+      }
+    }, 30000);
+
   } catch (err) {
-    console.error("Erreur quiz anime:", err.message);
-    const detail = err?.response?.data?.error || err.message || "erreur inconnue";
-    return reply(box({ title: "Erreur", emoji: "❌", body: `Impossible de créer le quiz anime.\n📄 Raison: ${detail}` }));
+    console.error("Anime quiz error:", err);
+    reply("⚠️ Impossible de créer un quiz anime.");
   }
 }
 
-async function handleImageQuiz({ sock, chatId, event, senderId, reply, category, title, emoji }) {
+async function handleQuiz(chatId, event, sock, userId, userName, args, reply, forcedDifficulty = null) {
   try {
-    const res = await axios.get(`${BASE_URL}/question?category=${category}&userId=${senderId}`, { timeout: 25000 });
-    const { _id, question, options, answer, imageUrl, hint } = res.data;
-    if (!Array.isArray(options) || !options.length) {
-      return reply(box({ title, emoji: "❌", body: `Aucune question « ${category} » disponible pour le moment.` }));
-    }
-    const body = `❔ ${hint || question}\n\n${optionsText(options)}\n\n⏰ 30 secondes pour répondre (👍❤️😂😮)`;
-    await sendQuestion({
-      sock, chatId, event, senderId, title, body, imageUrl,
-      data: { emoji, answer, options, questionId: _id, isImage: true, category, reward: 12000 }
-    });
-  } catch (err) {
-    console.error(`Erreur quiz ${category}:`, err.message);
-    const detail = err?.response?.data?.error || err.message || "erreur inconnue";
-    return reply(box({ title, emoji: "❌", body: `Impossible de créer le quiz ${category}.\n📄 Raison: ${detail}` }));
-  }
-}
-
-async function handleQuiz({ sock, chatId, event, senderId, reply, args, forcedDifficulty }) {
-  try {
-    const userName = event.pushName || "Joueur Anonyme";
-    await axios.post(`${BASE_URL}/user/update`, { userId: senderId, name: userName }).catch(() => {});
-
     const category = args[0]?.toLowerCase() || "";
-    let queryParams = { userId: senderId };
-    if (category && category !== "random") queryParams.category = category;
-    if (forcedDifficulty) queryParams.difficulty = forcedDifficulty;
+
+    let queryParams = { userId: userId };
+    if (category && category !== "random") {
+      queryParams.category = category;
+    }
+    if (forcedDifficulty) {
+      queryParams.difficulty = forcedDifficulty;
+    }
 
     const res = await axios.get(`${BASE_URL}/question`, { params: queryParams });
-    const { _id, question, options, answer, category: qCategory, difficulty, imageUrl, hint } = res.data;
+    let { _id, question, options, answer, category: qCategory, difficulty } = res.data;
 
-    const body =
-      `📚 ${bold("Catégorie")}: ${qCategory?.charAt(0).toUpperCase() + qCategory?.slice(1) || "Aléatoire"}\n` +
-      `🎚️ ${bold("Difficulté")}: ${difficulty?.charAt(0).toUpperCase() + difficulty?.slice(1) || "Moyen"}\n` +
-      `❓ ${bold("Question")}: ${hint || question}\n\n${optionsText(options)}\n\n⏰ Vous avez 30 secondes pour répondre (👍❤️😂😮):`;
-
-    await sendQuestion({
-      sock, chatId, event, senderId, title: "🎯 Quiz Challenge", body, imageUrl,
-      data: { emoji: "🎯", answer, options, questionId: _id, difficulty, category: qCategory, isImage: !!imageUrl }
+    const translatedData = await translateQuestion({
+      _id,
+      question,
+      options,
+      answer,
+      category: qCategory,
+      difficulty
     });
+
+    const optText = translatedData.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join("\n");
+
+    const sent = await sock.sendMessage(chatId, {
+      text: `🎯 𝗗𝗲́𝗳𝗶 𝗤𝘂𝗶𝘇\n━━━━━━━━━━\n\n` +
+            `📚 𝗖𝗮𝘁𝗲́𝗴𝗼𝗿𝗶𝗲: ${translatedData.category?.charAt(0).toUpperCase() + translatedData.category?.slice(1) || "Aléatoire"}\n` +
+            `🎚️ 𝗗𝗶𝗳𝗳𝗶𝗰𝘂𝗹𝘁𝗲́: ${translatedData.difficulty?.charAt(0).toUpperCase() + translatedData.difficulty?.slice(1) || "Moyen"}\n` +
+            `❓ ${translatedData.question}\n\n${optText}\n\n` +
+            `⏰ 30 secondes\n` +
+            `👍 = A  |  ❤️ = B  |  😂 = C  |  😮 = D\n` +
+            `Réagissez avec le bon emoji !`
+    }, { quoted: event });
+
+    if (!global.NixBot.onReactionQuiz) global.NixBot.onReactionQuiz = new Map();
+    global.NixBot.onReactionQuiz.set(sent.key.id, {
+      author: userId,
+      chatId: chatId,
+      correctAnswer: translatedData.answer,
+      options: translatedData.options,
+      questionId: translatedData._id,
+      startTime: Date.now(),
+      difficulty: translatedData.difficulty,
+      category: translatedData.category
+    });
+
+    setTimeout(() => {
+      const data = global.NixBot.onReactionQuiz?.get(sent.key.id);
+      if (data) {
+        global.NixBot.onReactionQuiz.delete(sent.key.id);
+        sock.sendMessage(chatId, {
+          text: `⏰ Temps écoulé ! La bonne réponse était: ${data.correctAnswer}`
+        }).catch(() => {});
+      }
+    }, 30000);
+
   } catch (err) {
-    console.error("Erreur du quiz:", err.message);
-    return reply(box({ title: "Erreur", emoji: "❌", body: "Impossible de récupérer une question. Essayez 'wkuiz categories'." }));
+    console.error("Quiz error:", err);
+    reply("⚠️ Impossible de récupérer une question.");
   }
 }
-
-module.exports = {
-  config: {
-    name: "quiz",
-    aliases: ["wkuiz", "kuiz"],
-    version: "5.0",
-    author: "Christus",
-    countDown: 0,
-    role: 0,
-    category: "game",
-    description: {
-      en: "Jeu de quiz avancé avec système de réactions 👍❤️😂😮"
-    },
-    guide: {
-      en: `{pn} <catégorie>\n\n📚 Catégories disponibles :\n🎌 anime, 🏁 flag, 📺 cartoon, 🐾 animaux, 🏛️ monument, ⚽ sport, 🔬 science, 📖 histoire, 🎬 cinema, 🌍 geographie, ➗ maths, 🎭 culture, ⚖️ torf`
-    }
-  },
-
-  onStart: async function (context) {
-    const { sock, chatId, args, event, senderId, reply, usersData } = context;
-    try {
-      const command = args[0]?.toLowerCase();
-
-      if (!args[0] || command === "help") {
-        return await handleDefaultView({ reply });
-      }
-
-      switch (command) {
-        case "rank":
-        case "profile":
-          return await handleRank({ event, senderId, reply, usersData });
-        case "leaderboard":
-        case "lb":
-          return await handleLeaderboard({ reply, args: args.slice(1) });
-        case "category":
-          if (args.length > 1) {
-            return await handleCategoryLeaderboard({ reply, args: args.slice(1) });
-          }
-          return await handleCategories({ reply });
-        case "daily":
-          return await handleDailyChallenge({ sock, chatId, event, senderId, reply });
-        case "torf":
-          return await handleTrueOrFalse({ sock, chatId, event, senderId, reply });
-        case "flag":
-          return await handleFlagQuiz({ sock, chatId, event, senderId, reply });
-        case "anime":
-          return await handleAnimeQuiz({ sock, chatId, event, senderId, reply });
-        case "cartoon":
-        case "dessin":
-        case "dessins":
-        case "kids":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "cartoon", title: "📺 Quiz Dessins Animés", emoji: "📺" });
-        case "animaux":
-        case "animal":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "animaux", title: "🐾 Quiz Animaux", emoji: "🐾" });
-        case "monument":
-        case "monuments":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "monument", title: "🏛️ Quiz Monuments", emoji: "🏛️" });
-        case "sport":
-        case "sports":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "sport", title: "⚽ Quiz Sport", emoji: "⚽" });
-        case "cinema":
-        case "film":
-        case "films":
-          return await handleImageQuiz({ sock, chatId, event, senderId, reply, category: "cinema", title: "🎬 Quiz Cinéma", emoji: "🎬" });
-        case "hard":
-          return await handleQuiz({ sock, chatId, event, senderId, reply, args: ["general"], forcedDifficulty: "hard" });
-        case "medium":
-          return await handleQuiz({ sock, chatId, event, senderId, reply, args: ["general"], forcedDifficulty: "medium" });
-        case "easy":
-          return await handleQuiz({ sock, chatId, event, senderId, reply, args: ["general"], forcedDifficulty: "easy" });
-        case "random":
-          return await handleQuiz({ sock, chatId, event, senderId, reply, args: [] });
-        default: {
-          const categories = await getAvailableCategories();
-          if (categories.includes(command)) {
-            return await handleQuiz({ sock, chatId, event, senderId, reply, args: [command] });
-          }
-          return await handleDefaultView({ reply });
-        }
-      }
-    } catch (err) {
-      console.error("Erreur de démarrage du quiz:", err);
-      return reply(box({ title: "Erreur", emoji: "❌", body: "Une erreur est survenue, réessayez." }));
-    }
-  },
-
-  onEvent: async function ({ sock, chatId, event, senderId, reply, usersData }) {
-    if (event.type !== "reaction") return;
-    
-    const reactionKey = event.reaction?.key;
-    if (!reactionKey) return;
-    
-    const messageId = reactionKey.id;
-    const reactionEmoji = event.reaction?.text || "";
-    
-    console.log("[QUIZ] Réaction reçue:", reactionEmoji, "sur le message:", messageId);
-    
-    const data = global.NixBot.onReply.find(r => 
-      r.commandName === "quiz" && 
-      r.messageID === messageId
-    );
-    
-    if (!data) {
-      console.log("[QUIZ] ❌ Aucune question en cours pour ce message.");
-      return;
-    }
-    
-    if (data.author !== senderId) {
-      console.log("[QUIZ] ❌ Auteur non autorisé:", senderId);
-      await sock.sendMessage(chatId, {
-        react: { text: '❌', key: { id: messageId } }
-      });
-      return;
-    }
-    
-    let option;
-    if (data.isTorf) {
-      option = getBooleanFromReaction(reactionEmoji);
-    } else {
-      option = getOptionFromReaction(reactionEmoji);
-    }
-    
-    if (!option) {
-      console.log("[QUIZ] ❌ Emoji non reconnu:", reactionEmoji);
-      return;
-    }
-    
-    console.log("[QUIZ] ✅ Option choisie:", option);
-    
-    const timeSpent = (Date.now() - data.startTime) / 1000;
-    if (timeSpent > 30) {
-      removeReply(data.messageID);
-      const timeoutMsg = box({ 
-        title: "⏰ Temps écoulé", 
-        emoji: "⏰", 
-        body: `La bonne réponse était : ${bold(data.answer)}` 
-      });
-      return reply(timeoutMsg);
-    }
-    
-    let userAnswer;
-    let isCorrect = false;
-    
-    if (data.isTorf) {
-      userAnswer = option === 'VRAI' ? 'A' : 'B';
-      isCorrect = userAnswer === data.answer;
-    } else {
-      if (data.options) {
-        const optionIndex = option.charCodeAt(0) - 65;
-        userAnswer = optionIndex >= 0 && optionIndex < data.options.length ? data.options[optionIndex] : option;
-      } else {
-        userAnswer = option;
-      }
-      isCorrect = String(userAnswer).toLowerCase() === String(data.answer).toLowerCase();
-    }
-    
-    console.log("[QUIZ] Réponse utilisateur:", userAnswer);
-    console.log("[QUIZ] Bonne réponse:", data.answer);
-    console.log("[QUIZ] Correct:", isCorrect);
-    
-    const userName = event.pushName || "Joueur Anonyme";
-    let user = {};
-    
-    try {
-      const answerData = { 
-        userId: senderId, 
-        questionId: data.questionId, 
-        answer: userAnswer, 
-        timeSpent, 
-        userName 
-      };
-      const res = await axios.post(`${BASE_URL}/answer`, answerData);
-      user = res.data?.user || {};
-      console.log("[QUIZ] Réponse enregistrée sur le serveur");
-    } catch (e) {
-      console.error("Erreur envoi réponse:", e.message);
-    }
-    
-    const userData = await usersData.get(senderId);
-    
-    let responseMsg;
-    if (isCorrect) {
-      let baseMoneyReward = 10000;
-      if (data.difficulty === 'hard') baseMoneyReward = 15000;
-      if (data.difficulty === 'easy') baseMoneyReward = 7500;
-      if (data.isFlag) baseMoneyReward = 12000;
-      if (data.isAnime) baseMoneyReward = 15000;
-      if (data.isImage) baseMoneyReward = 12000;
-      if (data.isDailyChallenge) baseMoneyReward = 20000;
-      if (data.isTorf) baseMoneyReward = 10000;
-      
-      const streakBonus = (user.currentStreak || 0) * 1000;
-      const totalMoneyReward = baseMoneyReward + streakBonus;
-      const xpGained = user.xpGained || 15;
-      
-      await usersData.set(senderId, {
-        money: (userData.money || 0) + totalMoneyReward,
-        exp: (userData.exp || 0) + xpGained
-      });
-      
-      responseMsg = box({
-        title: "🎉 Bonne réponse !", 
-        emoji: "🎉",
-        body: `✅ Bravo ${userName} ! Tu as trouvé la bonne réponse !\n\n` +
-              `💵 ${bold("Argent")}: +${totalMoneyReward.toLocaleString()}\n` +
-              `✨ ${bold("XP")}: +${xpGained}\n` +
-              `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
-              `🔥 ${bold("Série")}: ${user.currentStreak || 0}\n` +
-              `⚡ ${bold("Temps de réponse")}: ${timeSpent.toFixed(1)}s`
-      });
-    } else {
-      responseMsg = box({
-        title: "❌ Mauvaise réponse", 
-        emoji: "❌",
-        body: `😢 Désolé ${userName}, ce n'était pas la bonne réponse.\n\n` +
-              `🎯 ${bold("Bonne réponse")}: ${data.answer}\n` +
-              `📊 ${bold("Score")}: ${user.correct || 0}/${user.total || 0} (${user.accuracy || 0}%)\n` +
-              `💔 Série réinitialisée`
-      });
-    }
-    
-    await reply(responseMsg);
-    
-    if (user.achievements && user.achievements.length > 0) {
-      const achievementMsg = user.achievements.map(ach => `🏆 ${ach}`).join('\n');
-      const freshData = await usersData.get(senderId);
-      await usersData.set(senderId, { 
-        money: (freshData.money || 0) + 50000, 
-        exp: (freshData.exp || 0) + 100 
-      });
-      await reply(box({ 
-        title: "🏆 Succès débloqué !", 
-        emoji: "🏆", 
-        body: `${achievementMsg}\n💰 +50 000 pièces bonus !\n✨ +100 XP bonus !` 
-      }));
-    }
-    
-    removeReply(data.messageID);
-    console.log("[QUIZ] ✅ onEvent terminé.");
-  }
-};
